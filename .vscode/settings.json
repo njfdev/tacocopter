@@ -1,0 +1,7 @@
+{
+  "rust-analyzer.linkedProjects": [
+    "./configurator/src-tauri/Cargo.toml",
+    "./firmware/Cargo.toml",
+    "./tc_interface/Cargo.toml"
+  ]
+}
