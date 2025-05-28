@@ -1,24 +1,46 @@
 import { Slider } from "@heroui/react";
-import { TCData } from "./types";
+import { ElrsChannels, TCData } from "./types";
+import React from "react";
 
 function ElrsInterface({ tcData }: { tcData: TCData }) {
   return (
-    <main className="flex flex-col h-screen">
-      <div className="h-full">
-        <h1>ELRS Channels</h1>
+    <main className="flex flex-col h-screen mainContentContainer">
+      <div className="h-full w-full">
+        <h1 className="w-full">ELRS Channels</h1>
         <div>{JSON.stringify(tcData.channels)}</div>
-        <Slider
-          aria-label="Channel 1"
-          defaultValue={0.5}
-          className="w-[50wv]"
-          hideThumb={true}
-          color="foreground"
-          minValue={0}
-          maxValue={1}
-          size="lg"
-        />
+        <div className="grid grid-rows-8 gap-x-4 grid-flow-col">
+          {tcData.channels.map((val, id) => {
+            return (
+              <ElrsChannelView
+                key={`elrs-channel-${id}`}
+                channels={tcData.channels}
+                id={id}
+              />
+            );
+          })}
+        </div>
       </div>
     </main>
+  );
+}
+
+function ElrsChannelView({
+  channels,
+  id,
+}: {
+  channels?: ElrsChannels;
+  id: number;
+}) {
+  return (
+    <Slider
+      label={`Channel ${id + 1}`}
+      value={channels ? channels[id] : 0}
+      className="w-[50wv]"
+      hideThumb={true}
+      minValue={0}
+      maxValue={2000}
+      size="lg"
+    />
   );
 }
 

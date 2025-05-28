@@ -27,26 +27,24 @@ export interface SensorCalibration {
   accel_calibration: [number, number, number];
 }
 
-export interface ElrsChannels {
-  channels: [
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-    number
-  ];
-}
+export type ElrsChannels = [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number
+];
 
 export interface TCData {
   state: State;

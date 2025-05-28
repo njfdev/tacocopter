@@ -1,3 +1,7 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.mainContentContainer {
+  @apply w-[80vw];
+}

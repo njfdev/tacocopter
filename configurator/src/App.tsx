@@ -25,9 +25,7 @@ function App() {
       gyro_calibration: [0, 0, 0],
       accel_calibration: [0, 0, 0],
     },
-    channels: {
-      channels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    },
+    channels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   });
 
   let [flag, setFlag] = useState(false);
@@ -86,7 +84,7 @@ function App() {
 
   return (
     <main className="flex flex-col h-screen w-screen">
-      <Tabs isVertical={true}>
+      <Tabs isVertical={true} fullWidth={true}>
         <Tab key="main" title="Main">
           <MainInterface tcData={tcData} />
         </Tab>
