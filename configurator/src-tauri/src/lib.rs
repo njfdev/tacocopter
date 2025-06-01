@@ -9,7 +9,9 @@ use rusb::{open_device_with_vid_pid, Context, DeviceHandle, GlobalContext};
 use serde::Serialize;
 use serde_json::value::Serializer;
 use tauri::{AppHandle, Emitter, Manager};
-use tc_interface::{ConfiguratorMessage, StartGyroCalibrationData, TCMessage, TC_PID, TC_VID};
+use tc_interface::{
+    ConfiguratorMessage, LogData, StartGyroCalibrationData, TCMessage, TC_PID, TC_VID,
+};
 
 #[derive(Default)]
 struct AppState {
@@ -85,6 +87,7 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
     }
 
     let mut message_flag = false;
+    let mut log_buffer = String::new();
     let out_endpoint = 0x01;
     let in_endpoint = 0x81;
     // Read from bulk IN endpoint (example: 0x81)
@@ -151,9 +154,10 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
                     TCMessage::PacketIndicator(value) => {
                         message_flag = value;
                     }
-                    _ => {}
+                    _ => {
+                        app.emit("tc_data", message).unwrap();
+                    }
                 }
-                app.emit("tc_data", message).unwrap();
             }
         }
     }

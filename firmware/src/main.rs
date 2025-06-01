@@ -6,8 +6,10 @@ pub mod elrs;
 pub mod hc_sr04;
 pub mod kalman;
 pub mod m100_gps;
+pub mod tc_log;
 // pub mod mpu6050;
 
+use core::cmp::min;
 use core::f32::consts::PI;
 use core::fmt::UpperExp;
 use core::str::FromStr;
@@ -44,8 +46,9 @@ use nalgebra::{Matrix4x1, Quaternion, Unit, UnitQuaternion, Vector3};
 use postcard::from_bytes;
 use static_cell::StaticCell;
 use tc_interface::{
-    ConfiguratorMessage, GyroCalibrationProgressData, ImuSensorData, SensorCalibrationData,
-    SensorData, StartGyroCalibrationData, StateData, TCMessage, TC_PID, TC_VID,
+    ConfiguratorMessage, GyroCalibrationProgressData, ImuSensorData, LogData,
+    SensorCalibrationData, SensorData, StartGyroCalibrationData, StateData, TCMessage, TC_PID,
+    TC_VID,
 };
 use {defmt_rtt as _, panic_probe as _};
 
@@ -73,6 +76,7 @@ async fn logger_task(driver: Driver<'static, USB>) {
 pub const ACCEL_BIASES: [f32; 3] = [0.0425, -0.005, 0.05]; //[0.132174805, -0.028529054, 0.07425296];
 pub const GYRO_BIASES: [f32; 3] = [-0.0356924, -0.0230041, -0.03341522];
 
+// TODO: split this shared state for faster performance
 #[derive(Default)]
 struct SharedState {
     pub state_data: StateData,
@@ -81,6 +85,7 @@ struct SharedState {
     pub calibration_data: SensorCalibrationData,
     pub elrs_channels: [u16; 16],
     pub gyro_calibration_state: GyroCalibrationProgressData,
+    pub log_buffer: String<1024>,
 }
 
 pub static SHARED: Mutex<ThreadModeRawMutex, SharedState> = Mutex::new(SharedState {
@@ -113,6 +118,7 @@ pub static SHARED: Mutex<ThreadModeRawMutex, SharedState> = Mutex::new(SharedSta
             sampling_rate: 0.0,
         },
     },
+    log_buffer: String::new(),
 });
 
 #[link_section = ".start_block"]
@@ -283,6 +289,7 @@ async fn usb_updater(
     mut usb_read: Endpoint<'static, USB, Out>,
 ) {
     let time_between = Duration::from_millis((1000.0 / LOGGER_RATE) as u64);
+    let mut cur_log_id: u8 = 0;
     loop {
         let start = Instant::now();
 
@@ -292,6 +299,7 @@ async fn usb_updater(
         let sensor_data: SensorData;
         let calibration_data: SensorCalibrationData;
         let elrs_channels: [u16; 16];
+        let mut log_buffer: String<1024>;
         {
             let mut shared = SHARED.lock().await;
             state_data = shared.state_data.clone();
@@ -299,6 +307,8 @@ async fn usb_updater(
             sensor_data = shared.sensor_data.clone();
             calibration_data = shared.calibration_data.clone();
             elrs_channels = shared.elrs_channels.clone();
+            log_buffer = shared.log_buffer.clone();
+            shared.log_buffer.clear();
         }
 
         // indicate start of data
@@ -323,6 +333,22 @@ async fn usb_updater(
         // send elrs channel data
         postcard::to_slice(&TCMessage::ElrsChannels(elrs_channels), &mut buffer).unwrap();
         usb_send.write(&buffer).await.unwrap();
+
+        while log_buffer.len() > 0 {
+            let amount_this_cycle = min(log_buffer.len(), 63);
+            // send log channel data
+            postcard::to_slice(
+                &TCMessage::Log(LogData {
+                    id: cur_log_id,
+                    text: String::from_str(&log_buffer[0..amount_this_cycle]).unwrap(),
+                }),
+                &mut buffer,
+            )
+            .unwrap();
+            usb_send.write(&buffer).await.unwrap();
+            log_buffer = String::from_str(&log_buffer[amount_this_cycle..]).unwrap();
+            cur_log_id = cur_log_id.wrapping_add(1);
+        }
 
         // indicate end of data
         postcard::to_slice(&TCMessage::PacketIndicator(false), &mut buffer).unwrap();

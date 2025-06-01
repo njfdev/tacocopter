@@ -3,7 +3,8 @@ export type Message =
   | { ImuSensor: ImuSensor }
   | { Sensor: Sensor }
   | { SensorCalibration: SensorCalibration }
-  | { ElrsChannels: ElrsChannels };
+  | { ElrsChannels: ElrsChannels }
+  | { Log: LogData };
 
 export interface State {
   sensor_update_rate: number;
@@ -46,10 +47,16 @@ export type ElrsChannels = [
   number
 ];
 
+export interface LogData {
+  id: number;
+  text: string;
+}
+
 export interface TCData {
   state: State;
   imuSensors: ImuSensor;
   sensors: Sensor;
   sensorCalibration: SensorCalibration;
   channels: ElrsChannels;
+  log: LogData;
 }

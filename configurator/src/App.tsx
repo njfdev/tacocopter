@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Message, TCData } from "./types";
 import { listen } from "@tauri-apps/api/event";
 import ElrsInterface from "./ElrsInterface";
+import LogInterface from "./LogInterface";
 
 function App() {
   const [tcData, setTcData] = useState<TCData>({
@@ -26,6 +27,10 @@ function App() {
       accel_calibration: [0, 0, 0],
     },
     channels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    log: {
+      id: -1,
+      text: "",
+    },
   });
 
   let [flag, setFlag] = useState(false);
@@ -65,6 +70,16 @@ function App() {
               ...prev,
               channels: event.payload.ElrsChannels,
             }));
+          } else if ("Log" in event.payload) {
+            setTcData((prev) => {
+              if (prev.log.id != event.payload.Log.id) {
+                prev.log.text += event.payload.Log.text;
+
+                prev.log.id = event.payload.Log.id;
+              }
+
+              return prev;
+            });
           }
 
           return false;
@@ -90,6 +105,9 @@ function App() {
         </Tab>
         <Tab key="elrs" title="ELRS">
           <ElrsInterface tcData={tcData} />
+        </Tab>
+        <Tab key="log" title="Logs">
+          <LogInterface tcData={tcData} setTcData={setTcData} />
         </Tab>
       </Tabs>
     </main>

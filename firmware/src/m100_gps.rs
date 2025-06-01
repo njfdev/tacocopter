@@ -69,59 +69,59 @@ async fn reader(mut rx: BufferedUartRx<'static, UART1>) {
         }
 
         // process packet
-        for byte in current_packet[0..current_len] {
-            continue;
-        }
+        // for byte in current_packet[0..current_len] {
+        //     continue;
+        // }
     }
 }
 
-async fn handle_packet(data: &[u8], len: usize) {
-    let frame_type = data[2];
+// async fn handle_packet(data: &[u8], len: usize) {
+//     let frame_type = data[2];
 
-    match frame_type {
-        // RC Channels Packed Payload
-        0x16 => {
-            /* The data should be 25 bytes long because this packet
-             * type packets 16 channels into 22 bytes. The check byte,
-             * the length byte, the frame type byte, and crc byte,
-             * add 4 to that.
-             */
-            if len != 26 {
-                error!("RC Channels Packed Payload is {} bytes too long!", len - 26);
-            } else {
-                let chnls = unpack_rc_bits(&data[3..25].try_into().unwrap());
+//     match frame_type {
+//         // RC Channels Packed Payload
+//         0x16 => {
+//             /* The data should be 25 bytes long because this packet
+//              * type packets 16 channels into 22 bytes. The check byte,
+//              * the length byte, the frame type byte, and crc byte,
+//              * add 4 to that.
+//              */
+//             if len != 26 {
+//                 error!("RC Channels Packed Payload is {} bytes too long!", len - 26);
+//             } else {
+//                 let chnls = unpack_rc_bits(&data[3..25].try_into().unwrap());
 
-                {
-                    let mut shared = SHARED.lock().await;
-                    shared.elrs_channels = chnls;
-                }
+//                 {
+//                     let mut shared = SHARED.lock().await;
+//                     shared.elrs_channels = chnls;
+//                 }
 
-                // info!(
-                //     "Channels: {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
-                //     chnls[0],
-                //     chnls[1],
-                //     chnls[2],
-                //     chnls[3],
-                //     chnls[4],
-                //     chnls[5],
-                //     chnls[6],
-                //     chnls[7],
-                //     chnls[8],
-                //     chnls[9],
-                //     chnls[10],
-                //     chnls[11],
-                //     chnls[12],
-                //     chnls[13],
-                //     chnls[14],
-                //     chnls[15]
-                // );
-            }
-        }
-        0x14 => {
-            //print_link_statistics(data[3..13].try_into().unwrap());
-        }
-        _ => {
-            warn!("Unhandled frame type: {:2x?}", frame_type);
-        }
-    }
-}
+//                 // info!(
+//                 //     "Channels: {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+//                 //     chnls[0],
+//                 //     chnls[1],
+//                 //     chnls[2],
+//                 //     chnls[3],
+//                 //     chnls[4],
+//                 //     chnls[5],
+//                 //     chnls[6],
+//                 //     chnls[7],
+//                 //     chnls[8],
+//                 //     chnls[9],
+//                 //     chnls[10],
+//                 //     chnls[11],
+//                 //     chnls[12],
+//                 //     chnls[13],
+//                 //     chnls[14],
+//                 //     chnls[15]
+//                 // );
+//             }
+//         }
+//         0x14 => {
+//             //print_link_statistics(data[3..13].try_into().unwrap());
+//         }
+//         _ => {
+//             warn!("Unhandled frame type: {:2x?}", frame_type);
+//         }
+//     }
+// }
