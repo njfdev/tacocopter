@@ -5,6 +5,7 @@
 pub mod elrs;
 pub mod hc_sr04;
 pub mod kalman;
+pub mod m100_gps;
 // pub mod mpu6050;
 
 use core::f32::consts::PI;
@@ -36,6 +37,7 @@ use embedded_io_async::Write;
 use heapless::{String, Vec};
 use kalman::KalmanFilterQuat;
 use log::{error, info, warn};
+use m100_gps::init_gps;
 use micromath::F32Ext;
 use mpu6050::Mpu6050;
 use nalgebra::{Matrix4x1, Quaternion, Unit, UnitQuaternion, Vector3};
@@ -186,6 +188,8 @@ async fn main(spawner: Spawner) {
     spawner.spawn(usb_task(usb)).unwrap();
 
     let mut elrs_tx = init_elrs(p.PIN_0, p.PIN_1, p.UART0, &spawner).await;
+
+    let mut gps = init_gps(p.PIN_8, p.PIN_9, p.UART1, &spawner).await;
 
     spawner.spawn(usb_updater(bulk_in_ep, bulk_out_ep)).unwrap();
     spawner.spawn(mpu6050_loop(mpu)).unwrap();
