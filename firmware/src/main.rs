@@ -11,38 +11,34 @@ pub mod tc_log;
 
 use core::cmp::min;
 use core::f32::consts::PI;
-use core::fmt::UpperExp;
 use core::str::FromStr;
 
 use bmp390::{Bmp390, OdrSel, Oversampling, PowerMode};
-use defmt::{Format, Str};
-use elrs::{crc8, get_altitude_packed, init_elrs};
+use elrs::init_elrs;
 use embassy_executor::{Executor, Spawner};
 use embassy_futures::select::{select, Either};
+use embassy_rp::bind_interrupts;
 use embassy_rp::block::ImageDef;
-use embassy_rp::clocks::{ClockConfig, SysClkConfig};
 use embassy_rp::gpio::{Input, Level, Output, Pin, Pull};
 use embassy_rp::i2c::{self, Async, I2c};
 use embassy_rp::multicore::{spawn_core1, Stack};
-use embassy_rp::pac::io::Gpio;
 use embassy_rp::peripherals::{I2C0, I2C1, PIN_16, PIN_17, UART0, USB};
-use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, Config};
 use embassy_rp::usb::{Driver, Endpoint, In, InterruptHandler, Out};
-use embassy_rp::{bind_interrupts, Peripheral};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::blocking_mutex::raw::{
+    CriticalSectionRawMutex, NoopRawMutex, ThreadModeRawMutex,
+};
+use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Delay, Duration, Instant, Timer};
 use embassy_usb::driver::{EndpointIn, EndpointOut};
 use embassy_usb::{Builder, UsbDevice};
-use embedded_hal_async::digital::Wait;
-use embedded_io_async::Write;
 use heapless::{String, Vec};
 use kalman::KalmanFilterQuat;
 use log::{error, info, warn};
 use m100_gps::init_gps;
 use micromath::F32Ext;
 use mpu6050::Mpu6050;
-use nalgebra::{Matrix4x1, Quaternion, Unit, UnitQuaternion, Vector3};
+use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 use postcard::from_bytes;
 use static_cell::StaticCell;
 use tc_interface::{
@@ -85,8 +81,10 @@ struct SharedState {
     pub calibration_data: SensorCalibrationData,
     pub elrs_channels: [u16; 16],
     pub gyro_calibration_state: GyroCalibrationProgressData,
-    pub log_buffer: String<1024>,
 }
+
+// pub static SHARED_LOG: Mutex<ThreadModeRawMutex, String<16384>> = Mutex::new(String::new());
+static LOG_CHANNEL: Channel<CriticalSectionRawMutex, String<60>, 64> = Channel::new();
 
 pub static SHARED: Mutex<ThreadModeRawMutex, SharedState> = Mutex::new(SharedState {
     state_data: StateData {
@@ -118,7 +116,6 @@ pub static SHARED: Mutex<ThreadModeRawMutex, SharedState> = Mutex::new(SharedSta
             sampling_rate: 0.0,
         },
     },
-    log_buffer: String::new(),
 });
 
 #[link_section = ".start_block"]
@@ -299,7 +296,6 @@ async fn usb_updater(
         let sensor_data: SensorData;
         let calibration_data: SensorCalibrationData;
         let elrs_channels: [u16; 16];
-        let mut log_buffer: String<1024>;
         {
             let mut shared = SHARED.lock().await;
             state_data = shared.state_data.clone();
@@ -307,8 +303,6 @@ async fn usb_updater(
             sensor_data = shared.sensor_data.clone();
             calibration_data = shared.calibration_data.clone();
             elrs_channels = shared.elrs_channels.clone();
-            log_buffer = shared.log_buffer.clone();
-            shared.log_buffer.clear();
         }
 
         // indicate start of data
@@ -334,19 +328,31 @@ async fn usb_updater(
         postcard::to_slice(&TCMessage::ElrsChannels(elrs_channels), &mut buffer).unwrap();
         usb_send.write(&buffer).await.unwrap();
 
-        while log_buffer.len() > 0 {
-            let amount_this_cycle = min(log_buffer.len(), 63);
-            // send log channel data
+        // while log_buffer.len() > 0 {
+        //     let amount_this_cycle = min(log_buffer.len(), 63);
+        //     // send log channel data
+        //     postcard::to_slice(
+        //         &TCMessage::Log(LogData {
+        //             id: cur_log_id,
+        //             text: String::from_str(&log_buffer[0..amount_this_cycle]).unwrap(),
+        //         }),
+        //         &mut buffer,
+        //     )
+        //     .unwrap();
+        //     usb_send.write(&buffer).await.unwrap();
+        //     log_buffer = String::from_str(&log_buffer[amount_this_cycle..]).unwrap();
+        //     cur_log_id = cur_log_id.wrapping_add(1);
+        // }
+        while let Ok(log_msg) = LOG_CHANNEL.try_receive() {
             postcard::to_slice(
                 &TCMessage::Log(LogData {
                     id: cur_log_id,
-                    text: String::from_str(&log_buffer[0..amount_this_cycle]).unwrap(),
+                    text: String::from_str(&log_msg).unwrap(),
                 }),
                 &mut buffer,
             )
             .unwrap();
             usb_send.write(&buffer).await.unwrap();
-            log_buffer = String::from_str(&log_buffer[amount_this_cycle..]).unwrap();
             cur_log_id = cur_log_id.wrapping_add(1);
         }
 

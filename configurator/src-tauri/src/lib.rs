@@ -6,7 +6,7 @@ use std::{
 
 use postcard::from_bytes;
 use rusb::{open_device_with_vid_pid, Context, DeviceHandle, GlobalContext};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::value::Serializer;
 use tauri::{AppHandle, Emitter, Manager};
 use tc_interface::{
@@ -64,6 +64,12 @@ async fn start_gyro_calibration(app: AppHandle) -> Result<(), ()> {
     Ok(())
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct LogBuffer {
+    id: usize,
+    text: String,
+}
+
 #[tauri::command]
 async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
     {
@@ -90,8 +96,23 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
     let mut log_buffer = String::new();
     let out_endpoint = 0x01;
     let in_endpoint = 0x81;
+    let mut log_buffer: String = String::new();
+    let mut log_id: usize = 0;
     // Read from bulk IN endpoint (example: 0x81)
     loop {
+        if message_flag == false && log_buffer.len() > 0 {
+            app.emit(
+                "tc_data",
+                LogBuffer {
+                    id: log_id,
+                    text: log_buffer.clone(),
+                },
+            )
+            .unwrap();
+            log_buffer.clear();
+            log_id = log_id.wrapping_add(1);
+        }
+
         let mut buf = [0u8; 64];
 
         // if needing to send gyro message, then do it
@@ -153,6 +174,9 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
                 match message {
                     TCMessage::PacketIndicator(value) => {
                         message_flag = value;
+                    }
+                    TCMessage::Log(data) => {
+                        log_buffer += &data.text;
                     }
                     _ => {
                         app.emit("tc_data", message).unwrap();

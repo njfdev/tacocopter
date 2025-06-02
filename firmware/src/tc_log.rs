@@ -1,25 +1,32 @@
-use crate::SHARED;
-
 #[macro_export]
 macro_rules! tc_print {
     ($($arg:tt)*) => {{
         use core::fmt::Write;
-        let mut buf = heapless::String::<256>::new(); // Adjust size as needed
-        core::write!(&mut buf, $($arg)*).unwrap();
+        use heapless::String;
 
-        let text = buf.as_str();
-        let mut cur_index = 0;
+        let mut s: String<1024> = String::new();
+        let _ = write!(s, $($arg)*);
 
-        while cur_index < text.len() {
-            {
-                let mut shared = $crate::SHARED.lock().await;
-                let available = core::cmp::min(text.len() - cur_index, shared.log_buffer.capacity() - shared.log_buffer.len());
-                shared.log_buffer.push_str(&text[cur_index..(cur_index + available)]).unwrap();
-                cur_index += available;
+        let mut start = 0;
+        let len = s.len();
+
+        while start < len {
+            let mut end = core::cmp::min(start + 60, len);
+
+            // Move end back until it points at a char boundary
+            while !s.is_char_boundary(end) && end > start {
+                end -= 1;
             }
-            if cur_index < text.len() {
-                Timer::after_millis(50).await;
-            }
+
+            let slice = &s[start..end];
+
+            // Push slice safely
+            let mut part: String<60> = String::new();
+            let _ = part.push_str(slice);
+
+            let _ = $crate::LOG_CHANNEL.try_send(part);
+
+            start = end;
         }
     }};
 }

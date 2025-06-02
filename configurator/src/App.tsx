@@ -1,6 +1,6 @@
 import { Button, Tab, Tabs } from "@heroui/react";
 import MainInterface from "./MainInterface";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Message, TCData } from "./types";
 import { listen } from "@tauri-apps/api/event";
 import ElrsInterface from "./ElrsInterface";
@@ -32,6 +32,11 @@ function App() {
       text: "",
     },
   });
+  const logsRef = useRef(tcData.log);
+
+  useEffect(() => {
+    logsRef.current = tcData.log;
+  }, [tcData.log]);
 
   let [flag, setFlag] = useState(false);
   useEffect(() => {
@@ -70,16 +75,30 @@ function App() {
               ...prev,
               channels: event.payload.ElrsChannels,
             }));
-          } else if ("Log" in event.payload) {
-            setTcData((prev) => {
-              if (prev.log.id != event.payload.Log.id) {
-                prev.log.text += event.payload.Log.text;
+          } else if ("text" in event.payload) {
+            if (event.payload.id != logsRef.current.id) {
+              let newText = logsRef.current.text + event.payload.text;
 
-                prev.log.id = event.payload.Log.id;
+              if (newText.length > 10000) {
+                newText = newText.substring(newText.length - 10000);
               }
+              console.log(newText.length);
 
-              return prev;
-            });
+              const updatedLog = {
+                id: event.payload.id,
+                text: newText,
+              };
+              setTcData((prev) => ({ ...prev, log: updatedLog }));
+            }
+            // setTcData(() => {
+            //   if (prev.log.id != event.payload.Log.id) {
+            //     prev.log.text += event.payload.Log.text;
+
+            //     prev.log.id = event.payload.Log.id;
+            //   }
+
+            //   return prev;
+            // });
           }
 
           return false;

@@ -47,7 +47,7 @@ export type ElrsChannels = [
   number
 ];
 
-export interface LogData {
+export interface LogBuffer {
   id: number;
   text: string;
 }
@@ -58,5 +58,5 @@ export interface TCData {
   sensors: Sensor;
   sensorCalibration: SensorCalibration;
   channels: ElrsChannels;
-  log: LogData;
+  log: LogBuffer;
 }
