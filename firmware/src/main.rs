@@ -296,6 +296,7 @@ async fn main(spawner: Spawner) {
     }
 }
 
+const MIN_THROTTLE_PERCENT: f32 = 0.2;
 #[embassy_executor::task]
 async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
     let before = Instant::now();
@@ -329,7 +330,7 @@ async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
         // pwm.set_duty_cycle_percent(dshot_cmd as u8).unwrap();
         if armed {
             let dshot_cmd = if armed && time_since_armed.elapsed().as_millis() > 1000 {
-                (throttle_percent.max(0.03) * 1999.0) as u16 + 48
+                (throttle_percent.max(0.03).min(MIN_THROTTLE_PERCENT) * 1999.0) as u16 + 48
             } else {
                 0
             };
