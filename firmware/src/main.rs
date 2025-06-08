@@ -47,6 +47,7 @@ use m100_gps::init_gps;
 use micromath::F32Ext;
 use mpu6050::Mpu6050;
 use nalgebra::{Quaternion, UnitQuaternion, Vector3};
+use pid::Pid;
 use postcard::from_bytes;
 use static_cell::StaticCell;
 use tc_interface::{
@@ -97,7 +98,10 @@ struct SharedState {
 // pub static SHARED_LOG: Mutex<ThreadModeRawMutex, String<16384>> = Mutex::new(String::new());
 static LOG_CHANNEL: Channel<CriticalSectionRawMutex, String<60>, 64> = Channel::new();
 
-static ELRS_PUBSUB_CHANNEL: Signal<ThreadModeRawMutex, [u16; 16]> = Signal::new();
+static ELRS_SIGNAL: Signal<ThreadModeRawMutex, [u16; 16]> = Signal::new();
+static IMU_SIGNAL: Signal<ThreadModeRawMutex, (f32, f32, f32)> = Signal::new();
+// (armed, throttle_percent, motor_powers)
+static CONTROL_LOOP_VALUES: Signal<ThreadModeRawMutex, (bool, f32, [f32; 4])> = Signal::new();
 
 pub static SHARED: Mutex<ThreadModeRawMutex, SharedState> = Mutex::new(SharedState {
     state_data: StateData {
@@ -259,6 +263,7 @@ async fn main(spawner: Spawner) {
             executor.run(|spawner| {
                 let _ = spawner.spawn(calc_ultrasonic_distance(p.PIN_16, p.PIN_17));
                 let _ = spawner.spawn(dshot_handler(dshot));
+                let _ = spawner.spawn(control_loop());
             })
         },
     );
@@ -296,30 +301,139 @@ async fn main(spawner: Spawner) {
     }
 }
 
-const MIN_THROTTLE_PERCENT: f32 = 0.2;
+fn elrs_input_to_percent(input: u16) -> f32 {
+    return (((input - 172) as f32) / 1638.0).clamp(0.0, 1.0);
+}
+
+/*
+Quadcopter motor orientation
+
+With motor 1 and 4 CCW and motor 2 and 3 CW
+
+     (front)
+
+/---\       /---\
+| 1 |       | 2 |
+\---/       \---/
+     \ ___ /
+      |   |
+      |___|
+     /     \
+/---\       /---\
+| 3 |       | 4 |
+\---/       \---/
+
+      (back)
+*/
+const MAX_ACRO_RATE: f32 = 400.0; // What is the target rotation rate at full throttle input?
+#[embassy_executor::task]
+async fn control_loop() {
+    // pid
+    let mut pid_yaw = Pid::new(0.0, 0.25);
+    pid_yaw.p(0.0006, 0.2);
+    pid_yaw.i(0.0000, 0.1);
+    pid_yaw.d(0.0, 0.1);
+    let mut pid_roll = Pid::new(0.0, 0.25);
+    pid_roll.p(0.0008, 0.2);
+    pid_roll.i(0.0000, 0.1);
+    pid_roll.d(0.0000, 0.1);
+    let mut pid_pitch = Pid::new(0.0, 0.25);
+    pid_pitch.p(0.0008, 0.2);
+    pid_pitch.i(0.0000, 0.1);
+    pid_pitch.d(0.00000, 0.1);
+
+    // elrs controls
+    let mut armed = false;
+    let mut throttle_input = 0.0;
+    let mut yaw_input = 0.0;
+    let mut roll_input = 0.0;
+    let mut pitch_input = 0.0;
+
+    // imu stuff
+    let mut imu_values = (0.0, 0.0, 0.0);
+    let mut imu_rates = (0.0, 0.0, 0.0);
+
+    let mut since_last_loop = Instant::now();
+    loop {
+        Timer::after_micros(
+            1_000_000 / (UPDATE_LOOP_FREQUENCY as u64) - since_last_loop.elapsed().as_micros(),
+        )
+        .await;
+        let dt = (since_last_loop.elapsed().as_micros() as f32) / 1_000_000.0;
+        since_last_loop = Instant::now();
+
+        let chnls_recv = ELRS_SIGNAL.try_take();
+        if chnls_recv.is_some() {
+            let chnls = chnls_recv.unwrap();
+            let new_armed = elrs_input_to_percent(chnls[4]) > 0.5;
+            if (!armed && new_armed) {}
+            throttle_input = elrs_input_to_percent(chnls[2]);
+            yaw_input = (elrs_input_to_percent(chnls[0]) - 0.5) * 2.0 * MAX_ACRO_RATE;
+            roll_input = (elrs_input_to_percent(chnls[3]) - 0.5) * 2.0 * MAX_ACRO_RATE;
+            pitch_input = (elrs_input_to_percent(chnls[1]) - 0.5) * 2.0 * MAX_ACRO_RATE;
+        }
+
+        let imu_recv = IMU_SIGNAL.try_take();
+        if imu_recv.is_some() {
+            let mut imu_recv_values = imu_recv.unwrap();
+            imu_recv_values = (
+                imu_recv_values.0 * 180.0 / PI,
+                imu_recv_values.1 * 180.0 / PI,
+                imu_recv_values.2 * 180.0 / PI,
+            );
+            imu_rates = (
+                (imu_recv_values.0 - imu_values.0) / dt,
+                (imu_recv_values.1 - imu_values.1) / dt,
+                (imu_recv_values.2 - imu_values.2) / dt,
+            );
+            imu_values = imu_recv_values;
+        }
+
+        // calc pid
+        let pid_pitch_output = pid_pitch
+            .next_control_output(imu_rates.0 + pitch_input)
+            .output;
+        let pid_roll_output = pid_roll
+            .next_control_output(imu_rates.1 - roll_input)
+            .output;
+        let pid_yaw_output = pid_yaw.next_control_output(imu_rates.2 + yaw_input).output;
+
+        let t1 =
+            (throttle_input + pid_pitch_output + pid_roll_output - pid_yaw_output).clamp(0.0, 1.0);
+        let t2 =
+            (throttle_input + pid_pitch_output - pid_roll_output + pid_yaw_output).clamp(0.0, 1.0);
+        let t3 =
+            (throttle_input - pid_pitch_output + pid_roll_output + pid_yaw_output).clamp(0.0, 1.0);
+        let t4 =
+            (throttle_input - pid_pitch_output - pid_roll_output - pid_yaw_output).clamp(0.0, 1.0);
+
+        CONTROL_LOOP_VALUES.signal((armed, throttle_input, [t1, t2, t3, t4]));
+    }
+}
+
+const MAX_THROTTLE_PERCENT: f32 = 1.0;
 #[embassy_executor::task]
 async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
-    let before = Instant::now();
-    while (before.elapsed().as_secs() < 2) {
-        dshot.command([0, 0, 0, 0]);
-        Timer::after_micros(1000).await;
-    }
+    // let before = Instant::now();
+    // while (before.elapsed().as_secs() < 2) {
+    //     dshot.command([0, 0, 0, 0]);
+    //     Timer::after_micros(1000).await;
+    // }
 
-    let mut throttle_percent = 0.0;
     let mut armed = false;
+    let mut mtr_pwrs = [0.0, 0.0, 0.0, 0.0];
     let mut since_last_throttle_update = Instant::now();
     let mut time_since_armed = Instant::now();
 
     loop {
-        let chnls_recv = ELRS_PUBSUB_CHANNEL.try_take();
-        if chnls_recv.is_some() {
+        let control_loop_recv = CONTROL_LOOP_VALUES.try_take();
+        if control_loop_recv.is_some() {
             // && since_last_throttle_update.elapsed().as_micros() > 50000 {
-            let channels = chnls_recv.unwrap();
-            let armed_state = channels[4] > 1000;
-            let throttle = channels[2].clone();
-            throttle_percent = ((throttle - 176) as f32) / 1634.0;
-            if armed_state != armed {
-                armed = throttle_percent < 0.01 && armed_state;
+            let (armed_recv, throttle_percent, mtr_pwrs_recv) = control_loop_recv.unwrap();
+            mtr_pwrs = mtr_pwrs_recv;
+            tc_println!("Motor pwrs: {:?}", mtr_pwrs);
+            if armed_recv != armed {
+                armed = throttle_percent < 0.01 && armed_recv;
                 if armed {
                     time_since_armed = Instant::now();
                 }
@@ -329,15 +443,18 @@ async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
         // let pwm_pwr = (((throttle - 176) as f32) / 1634.0) * 90.0 + 10.0;
         // pwm.set_duty_cycle_percent(dshot_cmd as u8).unwrap();
         if armed {
-            let dshot_cmd = if armed && time_since_armed.elapsed().as_millis() > 1000 {
-                (throttle_percent.max(0.03).min(MIN_THROTTLE_PERCENT) * 1999.0) as u16 + 48
-            } else {
-                0
-            };
-            let dshot_data = dshot_cmd << 1;
-            let dshot_crc = (dshot_data ^ (dshot_data >> 4) ^ (dshot_data >> 8)) & 0x0f;
-            let dshot_msg = (dshot_data << 4) + dshot_crc;
-            dshot.command([dshot_msg, dshot_msg, dshot_msg, dshot_msg]);
+            let mut dshot_msgs: [u16; 4] = [0, 0, 0, 0];
+            for (i, motor_pwr) in mtr_pwrs.iter().enumerate() {
+                let dshot_cmd = if armed && time_since_armed.elapsed().as_millis() > 1000 {
+                    (motor_pwr.max(0.02).min(MAX_THROTTLE_PERCENT) * 1999.0) as u16 + 48
+                } else {
+                    0
+                };
+                let dshot_data = dshot_cmd << 1;
+                let dshot_crc = (dshot_data ^ (dshot_data >> 4) ^ (dshot_data >> 8)) & 0x0f;
+                dshot_msgs[i] = (dshot_data << 4) + dshot_crc;
+            }
+            dshot.command(dshot_msgs);
             Timer::after_micros(1000).await;
         } else {
             Timer::after_millis(10).await;
@@ -506,7 +623,7 @@ fn kalman_1d(
     [state.clone(), uncertainty.clone()]
 }
 
-const UPDATE_LOOP_FREQUENCY: f64 = 500.0;
+const UPDATE_LOOP_FREQUENCY: f64 = 200.0;
 #[embassy_executor::task]
 async fn mpu6050_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
     // TODO: fix integration of gyro data (e.g. tilting, moving yaw, then tilting back changes yaw from starting point)
@@ -582,6 +699,10 @@ async fn mpu6050_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
         //     delta,
         // )[0];
         // filtered_orientation[2] = gyro_angles[2];
+        let orientation_quaternion = kalman.q.as_vector().as_slice().try_into().unwrap();
+        let orientation_vector = kalman.q.euler_angles();
+        IMU_SIGNAL.signal(orientation_vector);
+
         let mut should_start_gyro_calib = false;
         if Instant::now()
             .checked_duration_since(start)
@@ -600,8 +721,7 @@ async fn mpu6050_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
                     .try_into()
                     .unwrap();
             shared.imu_sensor_data.gyro_orientation = gyro_angles;
-            shared.imu_sensor_data.orientation =
-                kalman.q.as_vector().as_slice().try_into().unwrap();
+            shared.imu_sensor_data.orientation = orientation_quaternion;
             shared.state_data.sensor_update_rate = (iterations as f32) * LOGGER_RATE;
             shared.calibration_data.accel_calibration = accel_data;
             iterations = 0;

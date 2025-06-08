@@ -69,6 +69,7 @@ nalgebra = { version = "0.33.2", default-features = false, features = ["libm"] }
 pio = "0.3.0"
 pio-proc = "0.3.0"
 dshot-pio = { git = "https://github.com/njfdev/dshot-pio.git", features = ["embassy-rp"] }
+pid = "4.0.0"
 
 [profile.release]
 debug = 2

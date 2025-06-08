@@ -14,7 +14,7 @@ use embedded_io_async::{Read, Write};
 use log::{error, info, warn};
 use static_cell::StaticCell;
 
-use crate::{tc_println, ELRS_PUBSUB_CHANNEL, SHARED};
+use crate::{tc_println, ELRS_SIGNAL, SHARED};
 
 bind_interrupts!(struct UartIrq {
   UART0_IRQ => BufferedInterruptHandler<UART0>;
@@ -212,11 +212,11 @@ async fn handle_packet(data: &[u8], len: usize) {
             } else {
                 let chnls = unpack_rc_bits(&data[3..25].try_into().unwrap());
 
-                // {
-                //     let mut shared = SHARED.lock().await;
-                //     shared.elrs_channels = chnls.clone();
-                // }
-                ELRS_PUBSUB_CHANNEL.signal(chnls);
+                {
+                    let mut shared = SHARED.lock().await;
+                    shared.elrs_channels = chnls.clone();
+                }
+                ELRS_SIGNAL.signal(chnls);
 
                 // info!(
                 //     "Channels: {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
