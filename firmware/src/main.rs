@@ -2,6 +2,7 @@
 #![no_main]
 
 //pub mod bmp390;
+// pub mod dshot;
 pub mod elrs;
 pub mod hc_sr04;
 pub mod kalman;
@@ -14,16 +15,20 @@ use core::f32::consts::PI;
 use core::str::FromStr;
 
 use bmp390::{Bmp390, OdrSel, Oversampling, PowerMode};
+use defmt::println;
+use dshot_pio::dshot_embassy_rp::DshotPio;
+use dshot_pio::DshotPioTrait;
 use elrs::init_elrs;
 use embassy_executor::{Executor, Spawner};
 use embassy_futures::select::{select, Either};
-use embassy_rp::bind_interrupts;
 use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::{Input, Level, Output, Pin, Pull};
 use embassy_rp::i2c::{self, Async, I2c};
 use embassy_rp::multicore::{spawn_core1, Stack};
-use embassy_rp::peripherals::{I2C0, I2C1, PIN_16, PIN_17, UART0, USB};
+use embassy_rp::peripherals::{I2C0, I2C1, PIN_16, PIN_17, PIO0, UART0, USB};
+use embassy_rp::pwm::{Pwm, SetDutyCycle};
 use embassy_rp::usb::{Driver, Endpoint, In, InterruptHandler, Out};
+use embassy_rp::{bind_interrupts, pwm};
 use embassy_sync::blocking_mutex::raw::{
     CriticalSectionRawMutex, NoopRawMutex, ThreadModeRawMutex,
 };
@@ -56,6 +61,9 @@ bind_interrupts!(struct I2CIrqs {
 });
 bind_interrupts!(struct I2C1Irqs {
   I2C1_IRQ => i2c::InterruptHandler<I2C1>;
+});
+bind_interrupts!(struct Pio0Irqs {
+  PIO0_IRQ_0 => embassy_rp::pio::InterruptHandler<embassy_rp::peripherals::PIO0>;
 });
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
@@ -197,18 +205,6 @@ async fn main(spawner: Spawner) {
     spawner.spawn(usb_updater(bulk_in_ep, bulk_out_ep)).unwrap();
     spawner.spawn(mpu6050_loop(mpu)).unwrap();
 
-    // run calculations on other core
-    spawn_core1(
-        p.CORE1,
-        unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
-        move || {
-            let executor = EXECUTOR1.init(Executor::new());
-            executor.run(|spawner| {
-                let _ = spawner.spawn(calc_ultrasonic_distance(p.PIN_16, p.PIN_17));
-            })
-        },
-    );
-
     // spawner
     //     .spawn(calc_ultrasonic_distance(p.PIN_16, p.PIN_17))
     //     .unwrap();
@@ -226,6 +222,41 @@ async fn main(spawner: Spawner) {
         .unwrap();
     spawner.spawn(bmp_loop(bmp)).unwrap();
 
+    let mut dshot = DshotPio::<4, _>::new(
+        p.PIO0,
+        Pio0Irqs,
+        p.PIN_2,
+        p.PIN_3,
+        p.PIN_4,
+        p.PIN_5,
+        (31, 74), // divider ratio of 31.25
+    );
+
+    // let desired_freq_hz = 24_000;
+    // let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
+    // let divider = 16u8;
+    // let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
+
+    // let mut c = pwm::Config::default();
+    // c.top = period;
+    // c.divider = divider.into();
+
+    // let mut pwm = Pwm::new_output_a(p.PWM_SLICE1, p.PIN_2, c.clone());
+    // pwm.set_duty_cycle_percent(10).unwrap();
+    // Timer::after_secs(2).await;
+
+    // run dshot and ultrasonic sensor on other core
+    spawn_core1(
+        p.CORE1,
+        unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
+        move || {
+            let executor = EXECUTOR1.init(Executor::new());
+            executor.run(|spawner| {
+                let _ = spawner.spawn(calc_ultrasonic_distance(p.PIN_16, p.PIN_17));
+                let _ = spawner.spawn(dshot_handler(dshot));
+            })
+        },
+    );
     loop {
         // let alt_packed = get_altitude_packed(measurement.value - base_altitude);
         // info!(
@@ -257,6 +288,56 @@ async fn main(spawner: Spawner) {
         Timer::after_millis(250).await;
         led.set_high();
         Timer::after_millis(250).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
+    let before = Instant::now();
+    while (before.elapsed().as_secs() < 2) {
+        dshot.command([0, 0, 0, 0]);
+        Timer::after_micros(1000).await;
+    }
+
+    let mut throttle_percent = 0.0;
+    let mut armed = false;
+    let mut since_last_throttle_update = Instant::now();
+    let mut time_since_armed = Instant::now();
+
+    loop {
+        if since_last_throttle_update.elapsed().as_millis() > 50 {
+            let armed_state: bool;
+            let throttle: u16;
+            {
+                let shared = SHARED.lock().await;
+                throttle = shared.elrs_channels[2].clone();
+                armed_state = shared.elrs_channels[4] > 1000;
+            }
+            throttle_percent = ((throttle - 176) as f32) / 1634.0;
+            if armed_state != armed {
+                armed = throttle_percent < 0.01 && armed_state;
+                if armed {
+                    time_since_armed = Instant::now();
+                }
+            }
+            since_last_throttle_update = Instant::now();
+        }
+        // let pwm_pwr = (((throttle - 176) as f32) / 1634.0) * 90.0 + 10.0;
+        // pwm.set_duty_cycle_percent(dshot_cmd as u8).unwrap();
+        if armed {
+            let dshot_cmd = if armed && time_since_armed.elapsed().as_millis() > 1000 {
+                (throttle_percent.max(0.03) * 1999.0) as u16 + 48
+            } else {
+                0
+            };
+            let dshot_data = dshot_cmd << 1;
+            let dshot_crc = (dshot_data ^ (dshot_data >> 4) ^ (dshot_data >> 8)) & 0x0f;
+            let dshot_msg = (dshot_data << 4) + dshot_crc;
+            dshot.command([dshot_msg, dshot_msg, dshot_msg, dshot_msg]);
+            Timer::after_micros(1000).await;
+        } else {
+            Timer::after_millis(10).await;
+        }
     }
 }
 

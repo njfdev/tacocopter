@@ -66,6 +66,9 @@ postcard = "1.1.1"
 mpu6050 = "0.1.6"
 micromath = "2.1.0"
 nalgebra = { version = "0.33.2", default-features = false, features = ["libm"] }
+pio = "0.3.0"
+pio-proc = "0.3.0"
+dshot-pio = { git = "https://github.com/njfdev/dshot-pio.git", features = ["embassy-rp"] }
 
 [profile.release]
 debug = 2
