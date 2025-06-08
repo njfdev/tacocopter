@@ -5,12 +5,16 @@ use embassy_rp::{
     uart::{self, BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx},
     Peripheral, Peripherals,
 };
+use embassy_sync::{
+    blocking_mutex::raw::ThreadModeRawMutex,
+    pubsub::{PubSubChannel, Publisher},
+};
 use embassy_time::Timer;
 use embedded_io_async::{Read, Write};
 use log::{error, info, warn};
 use static_cell::StaticCell;
 
-use crate::SHARED;
+use crate::{tc_println, ELRS_PUBSUB_CHANNEL, SHARED};
 
 bind_interrupts!(struct UartIrq {
   UART0_IRQ => BufferedInterruptHandler<UART0>;
@@ -80,6 +84,7 @@ pub fn get_altitude_packed(altitude: f32) -> u16 {
 #[embassy_executor::task]
 async fn reader(mut rx: BufferedUartRx<'static, UART0>) {
     info!("Reading...");
+
     let mut current_packet: [u8; 1024] = [0; 1024];
     let mut current_len = 0;
     loop {
@@ -207,10 +212,11 @@ async fn handle_packet(data: &[u8], len: usize) {
             } else {
                 let chnls = unpack_rc_bits(&data[3..25].try_into().unwrap());
 
-                {
-                    let mut shared = SHARED.lock().await;
-                    shared.elrs_channels = chnls;
-                }
+                // {
+                //     let mut shared = SHARED.lock().await;
+                //     shared.elrs_channels = chnls.clone();
+                // }
+                ELRS_PUBSUB_CHANNEL.signal(chnls);
 
                 // info!(
                 //     "Channels: {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",

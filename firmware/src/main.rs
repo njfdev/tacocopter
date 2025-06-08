@@ -21,6 +21,7 @@ use dshot_pio::DshotPioTrait;
 use elrs::init_elrs;
 use embassy_executor::{Executor, Spawner};
 use embassy_futures::select::{select, Either};
+use embassy_futures::yield_now;
 use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::{Input, Level, Output, Pin, Pull};
 use embassy_rp::i2c::{self, Async, I2c};
@@ -34,6 +35,8 @@ use embassy_sync::blocking_mutex::raw::{
 };
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
+use embassy_sync::pubsub::PubSubChannel;
+use embassy_sync::signal::Signal;
 use embassy_time::{Delay, Duration, Instant, Timer};
 use embassy_usb::driver::{EndpointIn, EndpointOut};
 use embassy_usb::{Builder, UsbDevice};
@@ -93,6 +96,8 @@ struct SharedState {
 
 // pub static SHARED_LOG: Mutex<ThreadModeRawMutex, String<16384>> = Mutex::new(String::new());
 static LOG_CHANNEL: Channel<CriticalSectionRawMutex, String<60>, 64> = Channel::new();
+
+static ELRS_PUBSUB_CHANNEL: Signal<ThreadModeRawMutex, [u16; 16]> = Signal::new();
 
 pub static SHARED: Mutex<ThreadModeRawMutex, SharedState> = Mutex::new(SharedState {
     state_data: StateData {
@@ -305,14 +310,12 @@ async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
     let mut time_since_armed = Instant::now();
 
     loop {
-        if since_last_throttle_update.elapsed().as_millis() > 50 {
-            let armed_state: bool;
-            let throttle: u16;
-            {
-                let shared = SHARED.lock().await;
-                throttle = shared.elrs_channels[2].clone();
-                armed_state = shared.elrs_channels[4] > 1000;
-            }
+        let chnls_recv = ELRS_PUBSUB_CHANNEL.try_take();
+        if chnls_recv.is_some() {
+            // && since_last_throttle_update.elapsed().as_micros() > 50000 {
+            let channels = chnls_recv.unwrap();
+            let armed_state = channels[4] > 1000;
+            let throttle = channels[2].clone();
             throttle_percent = ((throttle - 176) as f32) / 1634.0;
             if armed_state != armed {
                 armed = throttle_percent < 0.01 && armed_state;
@@ -338,6 +341,7 @@ async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
         } else {
             Timer::after_millis(10).await;
         }
+        yield_now().await;
     }
 }
 
