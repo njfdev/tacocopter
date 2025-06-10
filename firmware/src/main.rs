@@ -7,6 +7,7 @@ pub mod elrs;
 pub mod hc_sr04;
 pub mod kalman;
 pub mod m100_gps;
+pub mod pm02d;
 pub mod tc_log;
 // pub mod mpu6050;
 
@@ -48,6 +49,7 @@ use micromath::F32Ext;
 use mpu6050::Mpu6050;
 use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 use pid::Pid;
+use pm02d::PM02D;
 use postcard::from_bytes;
 use static_cell::StaticCell;
 use tc_interface::{
@@ -60,9 +62,9 @@ use {defmt_rtt as _, panic_probe as _};
 bind_interrupts!(struct UsbIrq {
     USBCTRL_IRQ => InterruptHandler<USB>;
 });
-bind_interrupts!(struct I2CIrqs {
-  I2C0_IRQ => i2c::InterruptHandler<I2C0>;
-});
+// bind_interrupts!(struct I2CIrqs {
+//   I2C0_IRQ => i2c::InterruptHandler<I2C0>;
+// });
 bind_interrupts!(struct I2C1Irqs {
   I2C1_IRQ => i2c::InterruptHandler<I2C1>;
 });
@@ -218,18 +220,20 @@ async fn main(spawner: Spawner) {
     //     .spawn(calc_ultrasonic_distance(p.PIN_16, p.PIN_17))
     //     .unwrap();
 
-    let mut bmp390_conf = bmp390::Configuration::default();
-    bmp390_conf.iir_filter.iir_filter = bmp390::IirFilter::coef_3;
-    bmp390_conf.output_data_rate.odr_sel = OdrSel::ODR_25;
-    bmp390_conf.oversampling.pressure = Oversampling::X16;
-    bmp390_conf.power_control.enable_temperature = false;
-    bmp390_conf.power_control.enable_pressure = true;
-    bmp390_conf.power_control.mode = PowerMode::Normal;
-    let i2c = I2c::new_async(p.I2C0, p.PIN_13, p.PIN_12, I2CIrqs, i2c::Config::default());
-    let mut bmp = Bmp390::try_new(i2c, bmp390::Address::Up, Delay, &bmp390_conf)
-        .await
-        .unwrap();
-    spawner.spawn(bmp_loop(bmp)).unwrap();
+    // let mut bmp390_conf = bmp390::Configuration::default();
+    // bmp390_conf.iir_filter.iir_filter = bmp390::IirFilter::coef_3;
+    // bmp390_conf.output_data_rate.odr_sel = OdrSel::ODR_25;
+    // bmp390_conf.oversampling.pressure = Oversampling::X16;
+    // bmp390_conf.power_control.enable_temperature = false;
+    // bmp390_conf.power_control.enable_pressure = true;
+    // bmp390_conf.power_control.mode = PowerMode::Normal;
+    // let i2c = I2c::new_async(p.I2C0, p.PIN_13, p.PIN_12, I2CIrqs, i2c::Config::default());
+    // let mut bmp = Bmp390::try_new(i2c, bmp390::Address::Up, Delay, &bmp390_conf)
+    //     .await
+    //     .unwrap();
+    // spawner.spawn(bmp_loop(bmp)).unwrap();
+
+    let mut pm02d_interface = PM02D::new(p.PIN_20, p.PIN_21, p.I2C0).await;
 
     let mut dshot = DshotPio::<4, _>::new(
         p.PIO0,
@@ -298,11 +302,23 @@ async fn main(spawner: Spawner) {
         Timer::after_millis(250).await;
         led.set_high();
         Timer::after_millis(250).await;
+        tc_println!("Voltage: {}V", (pm02d_interface.get_voltage().await));
+        tc_println!("Current: {}A", (pm02d_interface.get_current().await));
+        let (percent, mins_remaining) = pm02d_interface.estimate_battery_charge(4, 5200).await;
+        tc_println!(
+            "Estimated State: {:.2}%, {:.2} mins remaining",
+            percent,
+            mins_remaining
+        );
     }
 }
 
-fn elrs_input_to_percent(input: u16) -> f32 {
-    return (((input - 172) as f32) / 1638.0).clamp(0.0, 1.0);
+fn elrs_input_to_percent(input: u16, deadzone: f32) -> f32 {
+    let input_percent = ((input - 172) as f32) / 1638.0;
+    if ((input_percent - 0.5).abs() < deadzone) {
+        return 0.5;
+    };
+    return ((input_percent - deadzone) / (1.0 - deadzone)).clamp(0.0, 1.0);
 }
 
 /*
@@ -325,22 +341,22 @@ With motor 1 and 4 CCW and motor 2 and 3 CW
 
       (back)
 */
-const MAX_ACRO_RATE: f32 = 400.0; // What is the target rotation rate at full throttle input?
+const MAX_ACRO_RATE: f32 = 200.0; // What is the target rotation rate at full throttle input?
 #[embassy_executor::task]
 async fn control_loop() {
     // pid
     let mut pid_yaw = Pid::new(0.0, 0.25);
-    pid_yaw.p(0.0006, 0.2);
-    pid_yaw.i(0.0000, 0.1);
-    pid_yaw.d(0.0, 0.1);
+    pid_yaw.p(0.0018, 0.5);
+    pid_yaw.i(0.00, 0.1);
+    pid_yaw.d(0.01, 0.1);
     let mut pid_roll = Pid::new(0.0, 0.25);
-    pid_roll.p(0.0008, 0.2);
-    pid_roll.i(0.0000, 0.1);
-    pid_roll.d(0.0000, 0.1);
+    pid_roll.p(0.0027, 0.5);
+    pid_roll.i(0.00, 0.1);
+    pid_roll.d(0.01, 0.1);
     let mut pid_pitch = Pid::new(0.0, 0.25);
-    pid_pitch.p(0.0008, 0.2);
-    pid_pitch.i(0.0000, 0.1);
-    pid_pitch.d(0.00000, 0.1);
+    pid_pitch.p(0.0027, 0.5);
+    pid_pitch.i(0.00, 0.1);
+    pid_pitch.d(0.01, 0.1);
 
     // elrs controls
     let mut armed = false;
@@ -350,6 +366,7 @@ async fn control_loop() {
     let mut pitch_input = 0.0;
 
     // imu stuff
+    let mut target_imu_values = (0.0, 0.0, 0.0);
     let mut imu_values = (0.0, 0.0, 0.0);
     let mut imu_rates = (0.0, 0.0, 0.0);
 
@@ -361,17 +378,6 @@ async fn control_loop() {
         .await;
         let dt = (since_last_loop.elapsed().as_micros() as f32) / 1_000_000.0;
         since_last_loop = Instant::now();
-
-        let chnls_recv = ELRS_SIGNAL.try_take();
-        if chnls_recv.is_some() {
-            let chnls = chnls_recv.unwrap();
-            let new_armed = elrs_input_to_percent(chnls[4]) > 0.5;
-            if (!armed && new_armed) {}
-            throttle_input = elrs_input_to_percent(chnls[2]);
-            yaw_input = (elrs_input_to_percent(chnls[0]) - 0.5) * 2.0 * MAX_ACRO_RATE;
-            roll_input = (elrs_input_to_percent(chnls[3]) - 0.5) * 2.0 * MAX_ACRO_RATE;
-            pitch_input = (elrs_input_to_percent(chnls[1]) - 0.5) * 2.0 * MAX_ACRO_RATE;
-        }
 
         let imu_recv = IMU_SIGNAL.try_take();
         if imu_recv.is_some() {
@@ -389,14 +395,35 @@ async fn control_loop() {
             imu_values = imu_recv_values;
         }
 
+        let chnls_recv = ELRS_SIGNAL.try_take();
+        if chnls_recv.is_some() {
+            let chnls = chnls_recv.unwrap();
+            let new_armed = elrs_input_to_percent(chnls[4], 0.0) > 0.5;
+            if !armed && new_armed {
+                target_imu_values = imu_values;
+            }
+            armed = new_armed;
+            throttle_input = elrs_input_to_percent(chnls[2], 0.0);
+            yaw_input = (elrs_input_to_percent(chnls[0], 0.03) - 0.5) * 2.0 * MAX_ACRO_RATE;
+            roll_input = (elrs_input_to_percent(chnls[3], 0.03) - 0.5) * 2.0 * MAX_ACRO_RATE;
+            pitch_input = (elrs_input_to_percent(chnls[1], 0.03) - 0.5) * 2.0 * MAX_ACRO_RATE;
+            target_imu_values.0 -= pitch_input * dt;
+            target_imu_values.1 += roll_input * dt;
+            target_imu_values.2 -= yaw_input * dt;
+        }
+
+        // tc_println!("target imu: {:?}", target_imu_values);
+
         // calc pid
         let pid_pitch_output = pid_pitch
-            .next_control_output(imu_rates.0 + pitch_input)
+            .next_control_output(imu_values.0 - target_imu_values.0)
             .output;
         let pid_roll_output = pid_roll
-            .next_control_output(imu_rates.1 - roll_input)
+            .next_control_output(-target_imu_values.1 + imu_values.1)
             .output;
-        let pid_yaw_output = pid_yaw.next_control_output(imu_rates.2 + yaw_input).output;
+        let pid_yaw_output = pid_yaw
+            .next_control_output(-target_imu_values.2 + imu_values.2)
+            .output;
 
         let t1 =
             (throttle_input + pid_pitch_output + pid_roll_output - pid_yaw_output).clamp(0.0, 1.0);
@@ -431,7 +458,7 @@ async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
             // && since_last_throttle_update.elapsed().as_micros() > 50000 {
             let (armed_recv, throttle_percent, mtr_pwrs_recv) = control_loop_recv.unwrap();
             mtr_pwrs = mtr_pwrs_recv;
-            tc_println!("Motor pwrs: {:?}", mtr_pwrs);
+            // tc_println!("Motor pwrs: {:?}", mtr_pwrs);
             if armed_recv != armed {
                 armed = throttle_percent < 0.01 && armed_recv;
                 if armed {
