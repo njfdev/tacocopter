@@ -19,7 +19,7 @@ use bmp390::{Bmp390, OdrSel, Oversampling, PowerMode};
 use defmt::println;
 use dshot_pio::dshot_embassy_rp::DshotPio;
 use dshot_pio::DshotPioTrait;
-use elrs::init_elrs;
+use elrs::{crc8, init_elrs};
 use embassy_executor::{Executor, Spawner};
 use embassy_futures::select::{select, Either};
 use embassy_futures::yield_now;
@@ -41,6 +41,7 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Delay, Duration, Instant, Timer};
 use embassy_usb::driver::{EndpointIn, EndpointOut};
 use embassy_usb::{Builder, UsbDevice};
+use embedded_io_async::Write;
 use heapless::{String, Vec};
 use kalman::KalmanFilterQuat;
 use log::{error, info, warn};
@@ -302,14 +303,52 @@ async fn main(spawner: Spawner) {
         Timer::after_millis(250).await;
         led.set_high();
         Timer::after_millis(250).await;
-        tc_println!("Voltage: {}V", (pm02d_interface.get_voltage().await));
-        tc_println!("Current: {}A", (pm02d_interface.get_current().await));
-        let (percent, mins_remaining) = pm02d_interface.estimate_battery_charge(4, 5200).await;
+        let voltage = pm02d_interface.get_voltage().await;
+        let current = pm02d_interface.get_current().await;
+        let capacity = 5200;
+        let (percent, mins_remaining) = pm02d_interface.estimate_battery_charge(4, capacity).await;
+        tc_println!("Voltage: {}V", voltage);
+        tc_println!("Current: {}A", current);
         tc_println!(
             "Estimated State: {:.2}%, {:.2} mins remaining",
             percent,
             mins_remaining
         );
+
+        let voltage_bytes = ((voltage * 10.0) as u16).to_be_bytes();
+        let current_bytes = ((current * 10.0) as u16).to_be_bytes();
+        let capacity_bytes = (capacity as u32).to_be_bytes();
+        let remaining_bytes = (percent as u8).to_be_bytes();
+        elrs_tx
+            .write_all(&[
+                0xc8,
+                0x0a,
+                0x08,
+                voltage_bytes[0],
+                voltage_bytes[1],
+                current_bytes[0],
+                current_bytes[1],
+                capacity_bytes[1],
+                capacity_bytes[2],
+                capacity_bytes[3],
+                remaining_bytes[0],
+                crc8(
+                    &[
+                        0x08,
+                        voltage_bytes[0],
+                        voltage_bytes[1],
+                        current_bytes[0],
+                        current_bytes[1],
+                        capacity_bytes[1],
+                        capacity_bytes[2],
+                        capacity_bytes[3],
+                        remaining_bytes[0],
+                    ],
+                    9,
+                ),
+            ])
+            .await
+            .unwrap();
     }
 }
 
