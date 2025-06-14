@@ -385,17 +385,17 @@ const MAX_ACRO_RATE: f32 = 200.0; // What is the target rotation rate at full th
 async fn control_loop() {
     // pid
     let mut pid_yaw = Pid::new(0.0, 0.25);
-    pid_yaw.p(0.0018, 0.5);
+    pid_yaw.p(0.001, 0.5);
     pid_yaw.i(0.00, 0.1);
-    pid_yaw.d(0.01, 0.1);
+    pid_yaw.d(0.0, 0.1);
     let mut pid_roll = Pid::new(0.0, 0.25);
-    pid_roll.p(0.0027, 0.5);
+    pid_roll.p(0.002, 0.5);
     pid_roll.i(0.00, 0.1);
-    pid_roll.d(0.01, 0.1);
+    pid_roll.d(0.0, 0.1);
     let mut pid_pitch = Pid::new(0.0, 0.25);
-    pid_pitch.p(0.0027, 0.5);
+    pid_pitch.p(0.002, 0.5);
     pid_pitch.i(0.00, 0.1);
-    pid_pitch.d(0.01, 0.1);
+    pid_pitch.d(0.0, 0.1);
 
     // elrs controls
     let mut armed = false;
@@ -405,11 +405,12 @@ async fn control_loop() {
     let mut pitch_input = 0.0;
 
     // imu stuff
-    let mut target_imu_values = (0.0, 0.0, 0.0);
+    let mut rate_errors = (0.0, 0.0, 0.0);
     let mut imu_values = (0.0, 0.0, 0.0);
     let mut imu_rates = (0.0, 0.0, 0.0);
 
     let mut since_last_loop = Instant::now();
+    let mut since_last_elrs_update = Instant::now();
     loop {
         Timer::after_micros(
             1_000_000 / (UPDATE_LOOP_FREQUENCY as u64) - since_last_loop.elapsed().as_micros(),
@@ -439,30 +440,25 @@ async fn control_loop() {
             let chnls = chnls_recv.unwrap();
             let new_armed = elrs_input_to_percent(chnls[4], 0.0) > 0.5;
             if !armed && new_armed {
-                target_imu_values = imu_values;
+                rate_errors = imu_values;
             }
             armed = new_armed;
             throttle_input = elrs_input_to_percent(chnls[2], 0.0);
             yaw_input = (elrs_input_to_percent(chnls[0], 0.03) - 0.5) * 2.0 * MAX_ACRO_RATE;
             roll_input = (elrs_input_to_percent(chnls[3], 0.03) - 0.5) * 2.0 * MAX_ACRO_RATE;
             pitch_input = (elrs_input_to_percent(chnls[1], 0.03) - 0.5) * 2.0 * MAX_ACRO_RATE;
-            target_imu_values.0 -= pitch_input * dt;
-            target_imu_values.1 += roll_input * dt;
-            target_imu_values.2 -= yaw_input * dt;
+            rate_errors.0 = pitch_input + imu_rates.0;
+            rate_errors.1 = -roll_input + imu_rates.1;
+            rate_errors.2 = yaw_input + imu_rates.2;
+            since_last_elrs_update = Instant::now();
         }
 
         // tc_println!("target imu: {:?}", target_imu_values);
 
         // calc pid
-        let pid_pitch_output = pid_pitch
-            .next_control_output(imu_values.0 - target_imu_values.0)
-            .output;
-        let pid_roll_output = pid_roll
-            .next_control_output(-target_imu_values.1 + imu_values.1)
-            .output;
-        let pid_yaw_output = pid_yaw
-            .next_control_output(-target_imu_values.2 + imu_values.2)
-            .output;
+        let pid_pitch_output = pid_pitch.next_control_output(rate_errors.0).output;
+        let pid_roll_output = pid_roll.next_control_output(rate_errors.1).output;
+        let pid_yaw_output = pid_yaw.next_control_output(rate_errors.2).output;
 
         let t1 =
             (throttle_input + pid_pitch_output + pid_roll_output - pid_yaw_output).clamp(0.0, 1.0);
@@ -473,6 +469,11 @@ async fn control_loop() {
         let t4 =
             (throttle_input - pid_pitch_output - pid_roll_output - pid_yaw_output).clamp(0.0, 1.0);
 
+        // TODO: implement return to home like stuff in this case scenario
+        // if signal to controller is lost, turn off motors for safety
+        if since_last_elrs_update.elapsed().as_millis() > 500 {
+            armed = false;
+        }
         CONTROL_LOOP_VALUES.signal((armed, throttle_input, [t1, t2, t3, t4]));
     }
 }
