@@ -102,7 +102,8 @@ struct SharedState {
 static LOG_CHANNEL: Channel<CriticalSectionRawMutex, String<60>, 64> = Channel::new();
 
 static ELRS_SIGNAL: Signal<ThreadModeRawMutex, [u16; 16]> = Signal::new();
-static IMU_SIGNAL: Signal<ThreadModeRawMutex, (f32, f32, f32)> = Signal::new();
+// The first 3 numbers are the IMU Rates in radians per second, the last 3 are for the estimated orientation
+static IMU_SIGNAL: Signal<ThreadModeRawMutex, ((f32, f32, f32), (f32, f32, f32))> = Signal::new();
 // (armed, throttle_percent, motor_powers)
 static CONTROL_LOOP_VALUES: Signal<ThreadModeRawMutex, (bool, f32, [f32; 4])> = Signal::new();
 
@@ -307,13 +308,13 @@ async fn main(spawner: Spawner) {
         let current = pm02d_interface.get_current().await;
         let capacity = 5200;
         let (percent, mins_remaining) = pm02d_interface.estimate_battery_charge(4, capacity).await;
-        tc_println!("Voltage: {}V", voltage);
-        tc_println!("Current: {}A", current);
-        tc_println!(
-            "Estimated State: {:.2}%, {:.2} mins remaining",
-            percent,
-            mins_remaining
-        );
+        // tc_println!("Voltage: {}V", voltage);
+        // tc_println!("Current: {}A", current);
+        // tc_println!(
+        //     "Estimated State: {:.2}%, {:.2} mins remaining",
+        //     percent,
+        //     mins_remaining
+        // );
 
         let voltage_bytes = ((voltage * 10.0) as u16).to_be_bytes();
         let current_bytes = ((current * 10.0) as u16).to_be_bytes();
@@ -385,15 +386,15 @@ const MAX_ACRO_RATE: f32 = 200.0; // What is the target rotation rate at full th
 async fn control_loop() {
     // pid
     let mut pid_yaw = Pid::new(0.0, 0.25);
-    pid_yaw.p(0.001, 0.5);
+    pid_yaw.p(0.002, 0.5);
     pid_yaw.i(0.00, 0.1);
     pid_yaw.d(0.0, 0.1);
     let mut pid_roll = Pid::new(0.0, 0.25);
-    pid_roll.p(0.002, 0.5);
+    pid_roll.p(0.001, 0.5);
     pid_roll.i(0.00, 0.1);
     pid_roll.d(0.0, 0.1);
     let mut pid_pitch = Pid::new(0.0, 0.25);
-    pid_pitch.p(0.002, 0.5);
+    pid_pitch.p(0.001, 0.5);
     pid_pitch.i(0.00, 0.1);
     pid_pitch.d(0.0, 0.1);
 
@@ -422,25 +423,31 @@ async fn control_loop() {
         let imu_recv = IMU_SIGNAL.try_take();
         if imu_recv.is_some() {
             let mut imu_recv_values = imu_recv.unwrap();
-            imu_recv_values = (
-                imu_recv_values.0 * 180.0 / PI,
-                imu_recv_values.1 * 180.0 / PI,
-                imu_recv_values.2 * 180.0 / PI,
+            imu_recv_values.1 = (
+                imu_recv_values.1 .0 * 180.0 / PI,
+                imu_recv_values.1 .1 * 180.0 / PI,
+                imu_recv_values.1 .2 * 180.0 / PI,
+            );
+            imu_recv_values.0 = (
+                imu_recv_values.0 .0 * 180.0 / PI,
+                imu_recv_values.0 .1 * 180.0 / PI,
+                imu_recv_values.0 .2 * 180.0 / PI,
             );
             imu_rates = (
-                (imu_recv_values.0 - imu_values.0) / dt,
-                (imu_recv_values.1 - imu_values.1) / dt,
-                (imu_recv_values.2 - imu_values.2) / dt,
+                imu_recv_values.0 .0,
+                imu_recv_values.0 .1,
+                imu_recv_values.0 .2,
             );
-            imu_values = imu_recv_values;
+            imu_values = imu_recv_values.1;
         }
 
         let chnls_recv = ELRS_SIGNAL.try_take();
         if chnls_recv.is_some() {
             let chnls = chnls_recv.unwrap();
-            let new_armed = elrs_input_to_percent(chnls[4], 0.0) > 0.5;
+            let new_armed = elrs_input_to_percent(chnls[4], 0.0) > 0.25;
             if !armed && new_armed {
-                rate_errors = imu_values;
+
+                // rate_errors = imu_values;
             }
             armed = new_armed;
             throttle_input = elrs_input_to_percent(chnls[2], 0.0);
@@ -503,6 +510,9 @@ async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
                 armed = throttle_percent < 0.01 && armed_recv;
                 if armed {
                     time_since_armed = Instant::now();
+                } else {
+                    // if just disarmed, send the motor stop packet
+                    dshot.command([0, 0, 0, 0]);
                 }
             }
             since_last_throttle_update = Instant::now();
@@ -768,7 +778,7 @@ async fn mpu6050_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
         // filtered_orientation[2] = gyro_angles[2];
         let orientation_quaternion = kalman.q.as_vector().as_slice().try_into().unwrap();
         let orientation_vector = kalman.q.euler_angles();
-        IMU_SIGNAL.signal(orientation_vector);
+        IMU_SIGNAL.signal((gyro_data.try_into().unwrap(), orientation_vector));
 
         let mut should_start_gyro_calib = false;
         if Instant::now()
