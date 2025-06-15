@@ -70,6 +70,7 @@ pio = "0.3.0"
 pio-proc = "0.3.0"
 dshot-pio = { git = "https://github.com/njfdev/dshot-pio.git", features = ["embassy-rp"] }
 pid = "4.0.0"
+hcsr04_async = "0.4.0"
 
 [profile.release]
 debug = 2

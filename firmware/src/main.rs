@@ -15,6 +15,7 @@ use core::cmp::min;
 use core::f32::consts::PI;
 use core::str::FromStr;
 
+use crate::m100_gps::GPSPayload;
 use bmp390::{Bmp390, OdrSel, Oversampling, PowerMode};
 use defmt::println;
 use dshot_pio::dshot_embassy_rp::DshotPio;
@@ -58,6 +59,7 @@ use tc_interface::{
     SensorCalibrationData, SensorData, StartGyroCalibrationData, StateData, TCMessage, TC_PID,
     TC_VID,
 };
+
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct UsbIrq {
@@ -106,6 +108,9 @@ static ELRS_SIGNAL: Signal<ThreadModeRawMutex, [u16; 16]> = Signal::new();
 static IMU_SIGNAL: Signal<ThreadModeRawMutex, ((f32, f32, f32), (f32, f32, f32))> = Signal::new();
 // (armed, throttle_percent, motor_powers)
 static CONTROL_LOOP_VALUES: Signal<ThreadModeRawMutex, (bool, f32, [f32; 4])> = Signal::new();
+static GPS_SIGNAL: Signal<ThreadModeRawMutex, GPSPayload> = Signal::new();
+// In celsius
+static TEMPERATURE: Signal<ThreadModeRawMutex, f32> = Signal::new();
 
 pub static SHARED: Mutex<ThreadModeRawMutex, SharedState> = Mutex::new(SharedState {
     state_data: StateData {
@@ -226,7 +231,7 @@ async fn main(spawner: Spawner) {
     // bmp390_conf.iir_filter.iir_filter = bmp390::IirFilter::coef_3;
     // bmp390_conf.output_data_rate.odr_sel = OdrSel::ODR_25;
     // bmp390_conf.oversampling.pressure = Oversampling::X16;
-    // bmp390_conf.power_control.enable_temperature = false;
+    // bmp390_conf.power_control.enable_temperature = true;
     // bmp390_conf.power_control.enable_pressure = true;
     // bmp390_conf.power_control.mode = PowerMode::Normal;
     // let i2c = I2c::new_async(p.I2C0, p.PIN_13, p.PIN_12, I2CIrqs, i2c::Config::default());
@@ -301,9 +306,9 @@ async fn main(spawner: Spawner) {
         //     .await
         //     .unwrap();
         led.set_low();
-        Timer::after_millis(250).await;
+        Timer::after_millis(10).await;
         led.set_high();
-        Timer::after_millis(250).await;
+        Timer::after_millis(10).await;
         let voltage = pm02d_interface.get_voltage().await;
         let current = pm02d_interface.get_current().await;
         let capacity = 5200;
@@ -315,6 +320,10 @@ async fn main(spawner: Spawner) {
         //     percent,
         //     mins_remaining
         // );
+        tc_println!(
+            "Used capacity: {:.1}mah",
+            (pm02d_interface.get_used_capacity())
+        );
 
         let voltage_bytes = ((voltage * 10.0) as u16).to_be_bytes();
         let current_bytes = ((current * 10.0) as u16).to_be_bytes();
@@ -350,6 +359,63 @@ async fn main(spawner: Spawner) {
             ])
             .await
             .unwrap();
+
+        let gps_payload_res = GPS_SIGNAL.try_take();
+        if gps_payload_res.is_some() {
+            let gps_payload = gps_payload_res.unwrap();
+
+            let latitude_bytes = ((gps_payload.latitude * 10_000_000.0) as i32).to_be_bytes();
+            let longitude_bytes = ((gps_payload.longitude * 10_000_000.0) as i32).to_be_bytes();
+            let ground_speed_bytes =
+                ((gps_payload.ground_speed * 10_000.0 / 3600.0) as u16).to_be_bytes();
+            let gps_heading = ((gps_payload.motion_heading * 100.0) as u16).to_be_bytes();
+            let altitude = ((gps_payload.msl_height + 1000.0) as u16).to_be_bytes();
+            let num_sats = (gps_payload.sat_num as u8).to_be_bytes();
+            elrs_tx
+                .write_all(&[
+                    0xc8,
+                    0x11,
+                    0x02,
+                    latitude_bytes[0],
+                    latitude_bytes[1],
+                    latitude_bytes[2],
+                    latitude_bytes[3],
+                    longitude_bytes[0],
+                    longitude_bytes[1],
+                    longitude_bytes[2],
+                    longitude_bytes[3],
+                    ground_speed_bytes[0],
+                    ground_speed_bytes[1],
+                    gps_heading[0],
+                    gps_heading[1],
+                    altitude[0],
+                    altitude[1],
+                    num_sats[0],
+                    crc8(
+                        &[
+                            0x02,
+                            latitude_bytes[0],
+                            latitude_bytes[1],
+                            latitude_bytes[2],
+                            latitude_bytes[3],
+                            longitude_bytes[0],
+                            longitude_bytes[1],
+                            longitude_bytes[2],
+                            longitude_bytes[3],
+                            ground_speed_bytes[0],
+                            ground_speed_bytes[1],
+                            gps_heading[0],
+                            gps_heading[1],
+                            altitude[0],
+                            altitude[1],
+                            num_sats[0],
+                        ],
+                        16,
+                    ),
+                ])
+                .await
+                .unwrap();
+        }
     }
 }
 
@@ -386,17 +452,17 @@ const MAX_ACRO_RATE: f32 = 200.0; // What is the target rotation rate at full th
 async fn control_loop() {
     // pid
     let mut pid_yaw = Pid::new(0.0, 0.25);
-    pid_yaw.p(0.002, 0.5);
+    pid_yaw.p(0.003, 0.5);
     pid_yaw.i(0.00, 0.1);
-    pid_yaw.d(0.0, 0.1);
+    pid_yaw.d(0.0003, 0.1);
     let mut pid_roll = Pid::new(0.0, 0.25);
-    pid_roll.p(0.001, 0.5);
-    pid_roll.i(0.00, 0.1);
-    pid_roll.d(0.0, 0.1);
+    pid_roll.p(0.0011, 0.5);
+    pid_roll.i(0.00002, 0.1);
+    pid_roll.d(0.00011, 0.1);
     let mut pid_pitch = Pid::new(0.0, 0.25);
-    pid_pitch.p(0.001, 0.5);
-    pid_pitch.i(0.00, 0.1);
-    pid_pitch.d(0.0, 0.1);
+    pid_pitch.p(0.0011, 0.5);
+    pid_pitch.i(0.00002, 0.1);
+    pid_pitch.d(0.00011, 0.1);
 
     // elrs controls
     let mut armed = false;
@@ -446,7 +512,9 @@ async fn control_loop() {
             let chnls = chnls_recv.unwrap();
             let new_armed = elrs_input_to_percent(chnls[4], 0.0) > 0.25;
             if !armed && new_armed {
-
+                pid_yaw.reset_integral_term();
+                pid_pitch.reset_integral_term();
+                pid_roll.reset_integral_term();
                 // rate_errors = imu_values;
             }
             armed = new_armed;
@@ -555,6 +623,8 @@ async fn bmp_loop(mut bmp: Bmp390<I2c<'static, I2C0, Async>>) {
             let mut shared = SHARED.lock().await;
             shared.sensor_data.estimated_altitude = measurement.value - base_altitude;
         }
+        let temp = bmp.temperature().await.unwrap();
+        TEMPERATURE.signal(temp.value);
     }
 }
 
@@ -885,9 +955,11 @@ fn integrate_quaternion(new_angular_vel: &[f32; 3], q: &mut UnitQuaternion<f32>,
 async fn calc_ultrasonic_distance(trig_pin_peripheral: PIN_16, echo_pin_peripheral: PIN_17) {
     let mut trig_pin = Output::new(trig_pin_peripheral, Level::Low);
     let mut echo_pin = Input::new(echo_pin_peripheral, Pull::None);
+
     // wait for 10 milliseconds for any signals to clear (e.g. the pin was held high by default, then low, so it triggers once)
     Timer::after_millis(10).await;
     loop {
+        // println!("Temp: {:?}", (TEMPERATURE.try_take()));
         trig_pin.set_low();
         Timer::after_micros(2).await;
         trig_pin.set_high();
@@ -910,7 +982,7 @@ async fn calc_ultrasonic_distance(trig_pin_peripheral: PIN_16, echo_pin_peripher
         //     let mut shared = SHARED.lock().await;
         //     shared.sensor_data.ultrasonic_dist = distance;
         // }
-        // info!("Distance ({}us): {} cm", time, distance);
+        // tc_println!("Distance ({}us): {:.2?} cm", time, distance);
         Timer::after_millis(1000 / 30).await;
     }
 }

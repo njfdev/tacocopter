@@ -938,6 +938,7 @@ dependencies = [
  "embedded-storage",
  "fixed",
  "fixed-macro",
+ "hcsr04_async",
  "heapless 0.8.0",
  "itoa",
  "log",
@@ -1182,6 +1183,19 @@ name = "hashbrown"
 version = "0.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5971ac85611da7067dbfcabef3c70ebb5606018acd9e2a3903a0da507521e0d5"
+
+[[package]]
+name = "hcsr04_async"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c78c80df8c6331c5a6559c57fb95a789d1ead07e159d250009c5bc131ba5de4"
+dependencies = [
+ "defmt 0.3.100",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "futures",
+ "libm",
+]
 
 [[package]]
 name = "heapless"

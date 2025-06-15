@@ -4,8 +4,10 @@ use embassy_rp::{
     peripherals::I2C0,
     Peripheral,
 };
+use embassy_time::Instant;
 use log::error;
 use log::info;
+use micromath::F32Ext;
 
 use crate::tc_println;
 
@@ -14,7 +16,8 @@ const MAX_CURRENT: f32 = 80.0;
 const CURRENT_LSB: f32 = MAX_CURRENT / 524288.0_f32;
 const R_SHUNT: f32 = 0.0005;
 const SHUNT_CAL: u16 = (13107.2e5_f32 * CURRENT_LSB * R_SHUNT) as u16;
-const ESTIMATE_VOLTAGE_DROP_PER_AMP: f32 = 0.0007;
+const INTERNAL_BATTERY_RESISTANCE: f32 = 0.0005;
+const INTERNAL_BATTERY_RESISTANCE_SLOPE_PER_PACK: f32 = 0.001;
 
 enum PM02DReg {
     ShuntCalibration = 0x02,
@@ -28,6 +31,8 @@ bind_interrupts!(struct I2CIrqs {
 
 pub struct PM02D {
     i2c: I2c<'static, I2C0, Async>,
+    total_used_capacity: f32,
+    last_capacity_update: Option<Instant>,
 }
 
 const LIPO_VOLTAGE_CHARGE_LUT: [(f32, f32); 21] = [
@@ -62,7 +67,11 @@ impl PM02D {
     ) -> Self {
         let i2c = I2c::new_async(i2c_interface, scl, sda, I2CIrqs, Config::default());
 
-        let mut new_pm02d = Self { i2c };
+        let mut new_pm02d = Self {
+            i2c,
+            total_used_capacity: 0.0,
+            last_capacity_update: None,
+        };
         new_pm02d.set_shunt_cal().await;
 
         new_pm02d
@@ -130,6 +139,13 @@ impl PM02D {
         }) as f32
             * CURRENT_LSB;
 
+        if self.last_capacity_update.is_some() {
+            self.total_used_capacity += (current * 1000.0)
+                * ((self.last_capacity_update.unwrap().elapsed().as_micros() as f32)
+                    / 3600000000.0);
+        }
+        self.last_capacity_update = Some(Instant::now());
+
         return current;
     }
 
@@ -139,9 +155,15 @@ impl PM02D {
         lipo_s_value: u8,
         battery_mah: u16,
     ) -> (f32, f32) {
-        let mut voltage = self.get_voltage().await / (lipo_s_value as f32);
+        let mut cell_voltage = self.get_voltage().await / (lipo_s_value as f32);
         let current = self.get_current().await;
-        voltage = (voltage + (ESTIMATE_VOLTAGE_DROP_PER_AMP * current)).clamp(
+        cell_voltage = (cell_voltage
+            + (current
+                * (INTERNAL_BATTERY_RESISTANCE
+                    + INTERNAL_BATTERY_RESISTANCE_SLOPE_PER_PACK
+                        * (lipo_s_value as f32)
+                        * (LIPO_VOLTAGE_CHARGE_LUT[0].0 - cell_voltage).powf(1.5))))
+        .clamp(
             LIPO_VOLTAGE_CHARGE_LUT[LIPO_VOLTAGE_CHARGE_LUT.len() - 1].0,
             LIPO_VOLTAGE_CHARGE_LUT[0].0,
         );
@@ -151,8 +173,8 @@ impl PM02D {
         for i in 0..(LIPO_VOLTAGE_CHARGE_LUT.len() - 2) {
             let (v1, percent1) = LIPO_VOLTAGE_CHARGE_LUT[i + 1];
             let (v2, percent2) = LIPO_VOLTAGE_CHARGE_LUT[i];
-            if voltage >= v1 && voltage <= v2 {
-                percent = percent1 + (percent2 - percent1) * ((voltage - v1) / (v2 - v1));
+            if cell_voltage >= v1 && cell_voltage <= v2 {
+                percent = percent1 + (percent2 - percent1) * ((cell_voltage - v1) / (v2 - v1));
                 break;
             }
         }
@@ -161,5 +183,13 @@ impl PM02D {
         let remaining_mins = (remaining_ah / current) * 60.0;
 
         return (percent * 100.0, remaining_mins);
+    }
+
+    pub fn get_used_capacity(&self) -> f32 {
+        return self.total_used_capacity;
+    }
+
+    pub fn reset_used_capacity(&mut self) {
+        self.total_used_capacity = 0.0;
     }
 }
