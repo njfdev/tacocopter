@@ -419,12 +419,26 @@ async fn main(spawner: Spawner) {
     }
 }
 
-fn elrs_input_to_percent(input: u16, deadzone: f32) -> f32 {
+// if deadzone is passed as a value, then the output is scaled to -1.0 to 1.0, otherwise it is scaled from 0.0 to 1.0
+fn elrs_input_to_percent(input: u16, deadzone_opt: Option<f32>) -> f32 {
     let input_percent = ((input - 172) as f32) / 1638.0;
-    if ((input_percent - 0.5).abs() < deadzone) {
-        return 0.5;
+
+    if deadzone_opt.is_none() {
+        return input_percent.clamp(0.0, 1.0);
+    }
+
+    let rescaled_input_percent = (input_percent - 0.5) * 2.0;
+
+    let deadzone = deadzone_opt.unwrap();
+
+    if rescaled_input_percent.abs() < deadzone * 2.0 {
+        return 0.0;
     };
-    return ((input_percent - deadzone) / (1.0 - deadzone)).clamp(0.0, 1.0);
+
+    if rescaled_input_percent > 0.0 {
+        return ((rescaled_input_percent - deadzone) / (1.0 - deadzone)).clamp(0.0, 1.0);
+    }
+    return ((rescaled_input_percent + deadzone) / (1.0 - deadzone)).clamp(-1.0, 0.0);
 }
 
 /*
@@ -452,17 +466,17 @@ const MAX_ACRO_RATE: f32 = 200.0; // What is the target rotation rate at full th
 async fn control_loop() {
     // pid
     let mut pid_yaw = Pid::new(0.0, 0.25);
-    pid_yaw.p(0.003, 0.5);
+    pid_yaw.p(0.008, 0.5);
     pid_yaw.i(0.00, 0.1);
-    pid_yaw.d(0.0003, 0.1);
+    pid_yaw.d(0.0005, 0.1);
     let mut pid_roll = Pid::new(0.0, 0.25);
     pid_roll.p(0.0011, 0.5);
-    pid_roll.i(0.00002, 0.1);
-    pid_roll.d(0.00011, 0.1);
+    pid_roll.i(0.000014, 0.1);
+    pid_roll.d(0.00013, 0.1);
     let mut pid_pitch = Pid::new(0.0, 0.25);
     pid_pitch.p(0.0011, 0.5);
-    pid_pitch.i(0.00002, 0.1);
-    pid_pitch.d(0.00011, 0.1);
+    pid_pitch.i(0.000014, 0.1);
+    pid_pitch.d(0.00013, 0.1);
 
     // elrs controls
     let mut armed = false;
@@ -510,7 +524,7 @@ async fn control_loop() {
         let chnls_recv = ELRS_SIGNAL.try_take();
         if chnls_recv.is_some() {
             let chnls = chnls_recv.unwrap();
-            let new_armed = elrs_input_to_percent(chnls[4], 0.0) > 0.25;
+            let new_armed = elrs_input_to_percent(chnls[4], None) > 0.5;
             if !armed && new_armed {
                 pid_yaw.reset_integral_term();
                 pid_pitch.reset_integral_term();
@@ -518,17 +532,17 @@ async fn control_loop() {
                 // rate_errors = imu_values;
             }
             armed = new_armed;
-            throttle_input = elrs_input_to_percent(chnls[2], 0.0);
-            yaw_input = (elrs_input_to_percent(chnls[0], 0.03) - 0.5) * 2.0 * MAX_ACRO_RATE;
-            roll_input = (elrs_input_to_percent(chnls[3], 0.03) - 0.5) * 2.0 * MAX_ACRO_RATE;
-            pitch_input = (elrs_input_to_percent(chnls[1], 0.03) - 0.5) * 2.0 * MAX_ACRO_RATE;
+            throttle_input = elrs_input_to_percent(chnls[2], None);
+            yaw_input = elrs_input_to_percent(chnls[0], Some(0.01)) * MAX_ACRO_RATE;
+            roll_input = elrs_input_to_percent(chnls[3], Some(0.01)) * MAX_ACRO_RATE;
+            pitch_input = elrs_input_to_percent(chnls[1], Some(0.01)) * MAX_ACRO_RATE;
             rate_errors.0 = pitch_input + imu_rates.0;
             rate_errors.1 = -roll_input + imu_rates.1;
             rate_errors.2 = yaw_input + imu_rates.2;
             since_last_elrs_update = Instant::now();
         }
 
-        // tc_println!("target imu: {:?}", target_imu_values);
+        tc_println!("yaw input: {:?}", yaw_input);
 
         // calc pid
         let pid_pitch_output = pid_pitch.next_control_output(rate_errors.0).output;
@@ -578,7 +592,7 @@ async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
                 armed = throttle_percent < 0.01 && armed_recv;
                 if armed {
                     time_since_armed = Instant::now();
-                } else {
+                } else if armed_recv == false {
                     // if just disarmed, send the motor stop packet
                     dshot.command([0, 0, 0, 0]);
                 }
@@ -952,7 +966,7 @@ fn integrate_quaternion(new_angular_vel: &[f32; 3], q: &mut UnitQuaternion<f32>,
 }
 
 #[embassy_executor::task]
-async fn calc_ultrasonic_distance(trig_pin_peripheral: PIN_16, echo_pin_peripheral: PIN_17) {
+async fn calc_ultrasonic_height_agl(trig_pin_peripheral: PIN_16, echo_pin_peripheral: PIN_17) {
     let mut trig_pin = Output::new(trig_pin_peripheral, Level::Low);
     let mut echo_pin = Input::new(echo_pin_peripheral, Pull::None);
 
