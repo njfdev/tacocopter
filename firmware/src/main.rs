@@ -39,6 +39,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::pubsub::PubSubChannel;
 use embassy_sync::signal::Signal;
+use embassy_sync::watch::Watch;
 use embassy_time::{Delay, Duration, Instant, Timer};
 use embassy_usb::driver::{EndpointIn, EndpointOut};
 use embassy_usb::{Builder, UsbDevice};
@@ -86,8 +87,9 @@ async fn logger_task(driver: Driver<'static, USB>) {
 
 // TODO: have a way to calibrate this, and then store it in something like Flash memory
 // update based on calibration data
-pub const ACCEL_BIASES: [f32; 3] = [0.0425, -0.005, 0.05]; //[0.132174805, -0.028529054, 0.07425296];
+pub const ACCEL_BIASES: [f32; 3] = [0.044174805, -0.063529054, 0.07425296];
 pub const GYRO_BIASES: [f32; 3] = [-0.0356924, -0.0230041, -0.03341522];
+pub const GRAVITY: f32 = 9.80665;
 
 // TODO: split this shared state for faster performance
 #[derive(Default)]
@@ -104,11 +106,17 @@ struct SharedState {
 static LOG_CHANNEL: Channel<CriticalSectionRawMutex, String<60>, 64> = Channel::new();
 
 static ELRS_SIGNAL: Signal<ThreadModeRawMutex, [u16; 16]> = Signal::new();
-// The first 3 numbers are the IMU Rates in radians per second, the last 3 are for the estimated orientation
-static IMU_SIGNAL: Signal<ThreadModeRawMutex, ((f32, f32, f32), (f32, f32, f32))> = Signal::new();
+// The first 3 numbers are the IMU Rates in radians per second, the second 3 are for the estimated orientation, and the last three are the accel values
+static IMU_SIGNAL: Watch<
+    CriticalSectionRawMutex,
+    ((f32, f32, f32), (f32, f32, f32), (f32, f32, f32)),
+    3,
+> = Watch::new();
 // (armed, throttle_percent, motor_powers)
 static CONTROL_LOOP_VALUES: Signal<ThreadModeRawMutex, (bool, f32, [f32; 4])> = Signal::new();
-static GPS_SIGNAL: Signal<ThreadModeRawMutex, GPSPayload> = Signal::new();
+static GPS_SIGNAL: Watch<CriticalSectionRawMutex, GPSPayload, 2> = Watch::new();
+// measured height in m
+static ULTRASONIC_WATCH: Watch<CriticalSectionRawMutex, f32, 1> = Watch::new();
 // In celsius
 static TEMPERATURE: Signal<ThreadModeRawMutex, f32> = Signal::new();
 
@@ -240,8 +248,6 @@ async fn main(spawner: Spawner) {
     //     .unwrap();
     // spawner.spawn(bmp_loop(bmp)).unwrap();
 
-    let mut pm02d_interface = PM02D::new(p.PIN_20, p.PIN_21, p.I2C0).await;
-
     let mut dshot = DshotPio::<4, _>::new(
         p.PIO0,
         Pio0Irqs,
@@ -272,12 +278,17 @@ async fn main(spawner: Spawner) {
         move || {
             let executor = EXECUTOR1.init(Executor::new());
             executor.run(|spawner| {
-                let _ = spawner.spawn(calc_ultrasonic_distance(p.PIN_16, p.PIN_17));
+                let _ = spawner.spawn(calc_ultrasonic_height_agl(p.PIN_16, p.PIN_17));
                 let _ = spawner.spawn(dshot_handler(dshot));
                 let _ = spawner.spawn(control_loop());
+                let _ = spawner.spawn(position_hold_loop());
             })
         },
     );
+
+    let mut pm02d_interface = PM02D::new(p.PIN_20, p.PIN_21, p.I2C0).await;
+    let mut gps_receiver = GPS_SIGNAL.receiver().unwrap();
+
     loop {
         // let alt_packed = get_altitude_packed(measurement.value - base_altitude);
         // info!(
@@ -313,17 +324,17 @@ async fn main(spawner: Spawner) {
         let current = pm02d_interface.get_current().await;
         let capacity = 5200;
         let (percent, mins_remaining) = pm02d_interface.estimate_battery_charge(4, capacity).await;
-        // tc_println!("Voltage: {}V", voltage);
-        // tc_println!("Current: {}A", current);
-        // tc_println!(
-        //     "Estimated State: {:.2}%, {:.2} mins remaining",
-        //     percent,
-        //     mins_remaining
-        // );
-        tc_println!(
-            "Used capacity: {:.1}mah",
-            (pm02d_interface.get_used_capacity())
-        );
+        // // tc_println!("Voltage: {}V", voltage);
+        // // tc_println!("Current: {}A", current);
+        // // tc_println!(
+        // //     "Estimated State: {:.2}%, {:.2} mins remaining",
+        // //     percent,
+        // //     mins_remaining
+        // // );
+        // // tc_println!(
+        // //     "Used capacity: {:.1}mah",
+        // //     (pm02d_interface.get_used_capacity())
+        // // );
 
         let voltage_bytes = ((voltage * 10.0) as u16).to_be_bytes();
         let current_bytes = ((current * 10.0) as u16).to_be_bytes();
@@ -360,7 +371,7 @@ async fn main(spawner: Spawner) {
             .await
             .unwrap();
 
-        let gps_payload_res = GPS_SIGNAL.try_take();
+        let gps_payload_res = gps_receiver.try_get();
         if gps_payload_res.is_some() {
             let gps_payload = gps_payload_res.unwrap();
 
@@ -419,6 +430,156 @@ async fn main(spawner: Spawner) {
     }
 }
 
+// in m
+const ULTRASONIC_HEIGHT_ABOVE_BOTTOM: f32 = 0.1515;
+// the offset of the ultrasonic sensor from the center that is corrected by pitch
+const ULTRASONIC_DISTANCE_TO_CENTER_PITCH: f32 = 0.093;
+
+#[embassy_executor::task]
+async fn position_hold_loop() {
+    let mut gps_receiver = GPS_SIGNAL.receiver().unwrap();
+    let mut imu_receiver = IMU_SIGNAL.receiver().unwrap();
+    let mut ultrasonic_receiver = ULTRASONIC_WATCH.receiver().unwrap();
+    let mut gps_altitude: f32 = 0.0;
+    let mut gps_altitude_acc: f32 = 0.0;
+    let mut gps_locked_sats: u8 = 0;
+    let mut accel_vertical_speed: f32 = 0.0;
+    let mut accel_rel_altitude: f32 = 0.0;
+    let mut ultrasonic_rel_altitude: f32 = 0.0;
+    let mut is_ultrasonic_valid: bool = false;
+
+    let mut last_imu = Instant::now();
+
+    let mut last_print = Instant::now();
+
+    loop {
+        let gps_payload_recv = gps_receiver.try_changed();
+        if gps_payload_recv.is_some() {
+            let gps_payload = gps_payload_recv.unwrap();
+            gps_altitude = gps_payload.msl_height;
+            gps_altitude_acc = gps_payload.vertical_accuracy_estimate;
+            gps_locked_sats = gps_payload.sat_num;
+        }
+
+        let imu_recv = imu_receiver.try_changed();
+        if imu_recv.is_some() {
+            let imu_data = imu_recv.unwrap();
+
+            let vertical_accel = ((-imu_data.1 .1.sin()) * imu_data.2 .0
+                + (imu_data.1 .1.cos() * imu_data.1 .0.sin()) * imu_data.2 .1
+                + (imu_data.1 .1.cos() * imu_data.1 .0.cos()) * imu_data.2 .2)
+                - 1.0;
+            let dt = (last_imu.elapsed().as_micros() as f32) / 1_000_000.0;
+            accel_vertical_speed += (vertical_accel * GRAVITY) * dt;
+            accel_rel_altitude += accel_vertical_speed * dt;
+            last_imu = Instant::now();
+        }
+
+        let ultrasonic_recv = ultrasonic_receiver.try_changed();
+        if ultrasonic_recv.is_some() {
+            let ultrasonic_payload = ultrasonic_recv.unwrap();
+            // if not a number or ultrasonic sensor is displaying number too close (e.g., 10cm into the ground, do trust it because something might be blocking it)
+            if ultrasonic_payload.is_nan()
+                || ultrasonic_payload < ULTRASONIC_HEIGHT_ABOVE_BOTTOM / 3.0
+            {
+                is_ultrasonic_valid = false;
+            } else {
+                is_ultrasonic_valid = true;
+                ultrasonic_rel_altitude =
+                    (ultrasonic_payload - ULTRASONIC_HEIGHT_ABOVE_BOTTOM).max(0.0);
+            }
+        }
+
+        if (last_print.elapsed().as_millis() > 100) {
+            if gps_locked_sats > 0 {
+                tc_println!(
+                    "GPS Altitude ({}): {}m (Error: {}m)",
+                    (gps_locked_sats),
+                    (gps_altitude),
+                    (gps_altitude_acc)
+                );
+            } else {
+                tc_println!("GPS Altitude: sats not locked yet!");
+            }
+            tc_println!(
+                "Accel: Altitude={} m  -  VS={} m/s",
+                accel_rel_altitude,
+                accel_vertical_speed
+            );
+            if is_ultrasonic_valid {
+                tc_println!("Ultrasonic Altitude: {} m", ultrasonic_rel_altitude);
+            } else {
+                tc_println!("Ultrasonic Altitude: invalid");
+            }
+
+            last_print = Instant::now();
+        }
+
+        Timer::after_millis(1).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn calc_ultrasonic_height_agl(trig_pin_peripheral: PIN_16, echo_pin_peripheral: PIN_17) {
+    let mut trig_pin = Output::new(trig_pin_peripheral, Level::Low);
+    let mut echo_pin = Input::new(echo_pin_peripheral, Pull::None);
+
+    let mut imu_rotation = (0.0, 0.0, 0.0);
+
+    let mut imu_reciever = IMU_SIGNAL.receiver().unwrap();
+    let mut ultrasonic_sender = ULTRASONIC_WATCH.sender();
+
+    let mut distance = 0.0;
+    let mut height_agl_m = 0.0;
+
+    // wait for 10 milliseconds for any signals to clear (e.g. the pin was held high by default, then low, so it triggers once)
+    Timer::after_millis(10).await;
+    loop {
+        // println!("Temp: {:?}", (TEMPERATURE.try_take()));
+        trig_pin.set_low();
+        Timer::after_micros(2).await;
+        trig_pin.set_high();
+        Timer::after_micros(8).await;
+        trig_pin.set_low();
+
+        echo_pin.wait_for_rising_edge().await;
+        let start = Instant::now();
+        echo_pin.wait_for_falling_edge().await;
+        let after = Instant::now();
+        let time = Instant::checked_duration_since(&after, start)
+            .unwrap()
+            .as_micros();
+        distance = if time / 1000 <= 50 {
+            ((time as f32) * 0.000343) / 2.0
+        } else {
+            f32::NAN
+        };
+
+        let imu_recv = imu_reciever.try_get();
+        if imu_recv.is_some() {
+            imu_rotation = imu_recv.unwrap().1;
+        }
+
+        let angle_to_down_cos = imu_rotation.0.cos() * imu_rotation.1.cos();
+        if angle_to_down_cos.acos() < PI / 6.0 && !distance.is_nan() {
+            height_agl_m = (angle_to_down_cos * distance)
+                - (imu_rotation.0.sin() * ULTRASONIC_DISTANCE_TO_CENTER_PITCH);
+            ultrasonic_sender.send(height_agl_m);
+        } else {
+            ultrasonic_sender.send(f32::NAN);
+        }
+        // tc_println!("Angle to Down: {}", (angle_to_down_cos.acos() / PI * 180.0));
+        // tc_println!("Height: {}m", height_agl_m);
+
+        // {
+        //     let mut shared = SHARED.lock().await;
+        //     shared.sensor_data.ultrasonic_dist = distance;
+        // }
+        // tc_println!("Distance ({}us): {:.2?} cm", time, distance);
+        Timer::after_millis(1000 / 30).await;
+    }
+}
+
 // if deadzone is passed as a value, then the output is scaled to -1.0 to 1.0, otherwise it is scaled from 0.0 to 1.0
 fn elrs_input_to_percent(input: u16, deadzone_opt: Option<f32>) -> f32 {
     let input_percent = ((input - 172) as f32) / 1638.0;
@@ -467,7 +628,7 @@ async fn control_loop() {
     // pid
     let mut pid_yaw = Pid::new(0.0, 0.25);
     pid_yaw.p(0.008, 0.5);
-    pid_yaw.i(0.00, 0.1);
+    pid_yaw.i(0.0001, 0.1);
     pid_yaw.d(0.0005, 0.1);
     let mut pid_roll = Pid::new(0.0, 0.25);
     pid_roll.p(0.0011, 0.5);
@@ -492,6 +653,9 @@ async fn control_loop() {
 
     let mut since_last_loop = Instant::now();
     let mut since_last_elrs_update = Instant::now();
+
+    let mut imu_reciever = IMU_SIGNAL.receiver().unwrap();
+
     loop {
         Timer::after_micros(
             1_000_000 / (UPDATE_LOOP_FREQUENCY as u64) - since_last_loop.elapsed().as_micros(),
@@ -500,7 +664,7 @@ async fn control_loop() {
         let dt = (since_last_loop.elapsed().as_micros() as f32) / 1_000_000.0;
         since_last_loop = Instant::now();
 
-        let imu_recv = IMU_SIGNAL.try_take();
+        let imu_recv = imu_reciever.try_get();
         if imu_recv.is_some() {
             let mut imu_recv_values = imu_recv.unwrap();
             imu_recv_values.1 = (
@@ -541,8 +705,6 @@ async fn control_loop() {
             rate_errors.2 = yaw_input + imu_rates.2;
             since_last_elrs_update = Instant::now();
         }
-
-        tc_println!("yaw input: {:?}", yaw_input);
 
         // calc pid
         let pid_pitch_output = pid_pitch.next_control_output(rate_errors.0).output;
@@ -793,6 +955,8 @@ async fn mpu6050_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
 
     let mut filtered_orientation: [f32; 3] = [0.0; 3];
 
+    let imu_watch_sender = IMU_SIGNAL.sender();
+
     let mut kalman_angle_roll: f32 = 0.0;
     let mut kalman_angle_roll_uncertainty: f32 = 2.0.powi(2);
     let mut kalman_angle_pitch: f32 = 0.0;
@@ -862,7 +1026,11 @@ async fn mpu6050_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
         // filtered_orientation[2] = gyro_angles[2];
         let orientation_quaternion = kalman.q.as_vector().as_slice().try_into().unwrap();
         let orientation_vector = kalman.q.euler_angles();
-        IMU_SIGNAL.signal((gyro_data.try_into().unwrap(), orientation_vector));
+        imu_watch_sender.send((
+            gyro_data.try_into().unwrap(),
+            orientation_vector,
+            accel_data.try_into().unwrap(),
+        ));
 
         let mut should_start_gyro_calib = false;
         if Instant::now()
@@ -963,42 +1131,6 @@ fn integrate_quaternion(new_angular_vel: &[f32; 3], q: &mut UnitQuaternion<f32>,
     );
 
     *q = UnitQuaternion::from_quaternion(new_q);
-}
-
-#[embassy_executor::task]
-async fn calc_ultrasonic_height_agl(trig_pin_peripheral: PIN_16, echo_pin_peripheral: PIN_17) {
-    let mut trig_pin = Output::new(trig_pin_peripheral, Level::Low);
-    let mut echo_pin = Input::new(echo_pin_peripheral, Pull::None);
-
-    // wait for 10 milliseconds for any signals to clear (e.g. the pin was held high by default, then low, so it triggers once)
-    Timer::after_millis(10).await;
-    loop {
-        // println!("Temp: {:?}", (TEMPERATURE.try_take()));
-        trig_pin.set_low();
-        Timer::after_micros(2).await;
-        trig_pin.set_high();
-        Timer::after_micros(8).await;
-        trig_pin.set_low();
-
-        echo_pin.wait_for_rising_edge().await;
-        let start = Instant::now();
-        echo_pin.wait_for_falling_edge().await;
-        let after = Instant::now();
-        let time = Instant::checked_duration_since(&after, start)
-            .unwrap()
-            .as_micros();
-        let distance = if time / 1000 <= 50 {
-            ((time as f32) * 0.0343) / 2.0
-        } else {
-            f32::NAN
-        };
-        // {
-        //     let mut shared = SHARED.lock().await;
-        //     shared.sensor_data.ultrasonic_dist = distance;
-        // }
-        // tc_println!("Distance ({}us): {:.2?} cm", time, distance);
-        Timer::after_millis(1000 / 30).await;
-    }
 }
 
 const CALIBRATION_STEPS: usize = 1000;

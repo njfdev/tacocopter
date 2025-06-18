@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 embassy-embedded-hal = { version = "0.3.0", features = ["defmt"] }
-embassy-sync = { version = "0.6.2", features = ["defmt"] }
+embassy-sync = { version = "0.7.0", features = ["defmt"] }
 embassy-executor = { version = "0.7.0", features = ["task-arena-size-98304", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.4.0", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { version = "0.3.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "binary-info"] }
@@ -71,6 +71,7 @@ pio-proc = "0.3.0"
 dshot-pio = { git = "https://github.com/njfdev/dshot-pio.git", features = ["embassy-rp"] }
 pid = "4.0.0"
 hcsr04_async = "0.4.0"
+kfilter = "0.4.0"
 
 [profile.release]
 debug = 2

@@ -5,6 +5,7 @@ use embassy_rp::{
     uart::{self, BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx},
     Peripheral, Peripherals,
 };
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch::Sender};
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
 use log::{error, info, warn};
@@ -16,6 +17,7 @@ bind_interrupts!(struct UartIrq {
   UART1_IRQ => BufferedInterruptHandler<UART1>;
 });
 
+#[derive(Clone, Copy, Debug)]
 pub struct GPSPayload {
     pub itow: u32,
     pub year: u16,
@@ -79,6 +81,7 @@ async fn reader(mut rx: BufferedUartRx<'static, UART1>) {
     let mut current_packet: [u8; 8192] = [0; 8192];
     let mut current_len = 0;
     let mut time_since_last = Instant::now();
+    let mut gps_sender = GPS_SIGNAL.sender();
     loop {
         let mut buf = [0; 8192];
         match rx.read(&mut buf).await {
@@ -135,7 +138,7 @@ async fn reader(mut rx: BufferedUartRx<'static, UART1>) {
                 .as_millis()
                 > 0
             {
-                handle_packet(&current_packet[..len], len).await;
+                handle_packet(&current_packet[..len], len, &mut gps_sender).await;
                 time_since_last = Instant::now();
             }
 
@@ -146,7 +149,11 @@ async fn reader(mut rx: BufferedUartRx<'static, UART1>) {
     }
 }
 
-async fn handle_packet(data: &[u8], len: usize) {
+async fn handle_packet(
+    data: &[u8],
+    len: usize,
+    gps_sender: &mut Sender<'_, CriticalSectionRawMutex, GPSPayload, 2>,
+) {
     let message_class = data[2];
     let message_id = data[3];
     let payload = &data[6..(len - 2)];
@@ -350,7 +357,7 @@ async fn handle_packet(data: &[u8], len: usize) {
                     dop: p_dop,
                 };
 
-                GPS_SIGNAL.signal(gps_payload);
+                gps_sender.send(gps_payload);
             }
             _ => {
                 tc_println!("Unhandled message id: {:2x?}", message_id);
