@@ -3,6 +3,7 @@
 
 //pub mod bmp390;
 // pub mod dshot;
+pub mod altitude_estimator;
 pub mod elrs;
 pub mod hc_sr04;
 pub mod kalman;
@@ -14,6 +15,7 @@ pub mod tc_log;
 use core::cell::RefCell;
 use core::cmp::min;
 use core::f32::consts::PI;
+use core::f32::NAN;
 use core::ops::Deref;
 use core::str::FromStr;
 
@@ -50,11 +52,18 @@ use embassy_usb::{Builder, UsbDevice};
 use embedded_io_async::Write;
 use heapless::{String, Vec};
 use kalman::KalmanFilterQuat;
+use kfilter::measurement::{LinearMeasurement, Measurement};
+use kfilter::system::System;
+use kfilter::{
+    Kalman, Kalman1M, KalmanFilter, KalmanLinear, KalmanPredict, KalmanPredictInput, KalmanUpdate,
+};
 use log::{error, info, warn};
 use m100_gps::init_gps;
 use micromath::F32Ext;
 use mpu6050::Mpu6050;
-use nalgebra::{Quaternion, UnitQuaternion, Vector3};
+use nalgebra::{
+    Matrix1, Matrix1x2, Matrix2, Matrix2x1, Quaternion, SMatrix, SVector, UnitQuaternion, Vector3,
+};
 use pid::Pid;
 use pm02d::PM02D;
 use postcard::from_bytes;
@@ -64,6 +73,9 @@ use tc_interface::{
     SensorCalibrationData, SensorData, StartGyroCalibrationData, StateData, TCMessage, TC_PID,
     TC_VID,
 };
+use uom::si::length::meter;
+use uom::si::pressure::kilopascal;
+use uom::si::thermodynamic_temperature::kelvin;
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -121,6 +133,8 @@ static CONTROL_LOOP_VALUES: Signal<ThreadModeRawMutex, (bool, f32, [f32; 4])> = 
 static GPS_SIGNAL: Watch<CriticalSectionRawMutex, GPSPayload, 2> = Watch::new();
 // measured height in m
 static ULTRASONIC_WATCH: Watch<CriticalSectionRawMutex, f32, 1> = Watch::new();
+// in format of (pressure in kPa, temperature in kelvin, estimated altitude in m)
+static BMP390_WATCH: Watch<CriticalSectionRawMutex, (f32, f32, f32), 1> = Watch::new();
 // In celsius
 static TEMPERATURE: Signal<ThreadModeRawMutex, f32> = Signal::new();
 
@@ -449,6 +463,29 @@ async fn main(spawner: Spawner) {
     }
 }
 
+// Measurement noise for sensors
+const R_BAROMETER: f64 = 0.5;
+const R_GPS: f64 = 4.0;
+
+fn create_altitude_filter() -> Kalman<f64, 2, 1, kfilter::system::LinearSystem<f64, 2, 1>> {
+    // Stater transition matrix (F)
+    let f = Matrix2::new(1.0, 1.0 / UPDATE_LOOP_FREQUENCY, 0.0, 1.0);
+    // Process Noise (q)
+    let b = Matrix2x1::new(
+        0.5 * (1.0 / UPDATE_LOOP_FREQUENCY) * (1.0 / UPDATE_LOOP_FREQUENCY),
+        1.0 / UPDATE_LOOP_FREQUENCY,
+    );
+    // Observation matrix (h) - only measuring altitude
+    let q = Matrix2::new(0.01, 0.0, 0.0, 0.1);
+
+    // initial state with (altitude, velocity)
+    let x_initial = Matrix2x1::new(0.0, 0.0);
+    // high uncertainty
+    let p_initial = Matrix2::identity() * 10.0;
+
+    KalmanLinear::new_with_input(f, q, b, x_initial, p_initial)
+}
+
 // in m
 const ULTRASONIC_HEIGHT_ABOVE_BOTTOM: f32 = 0.1515;
 // the offset of the ultrasonic sensor from the center that is corrected by pitch
@@ -459,26 +496,45 @@ async fn position_hold_loop() {
     let mut gps_receiver = GPS_SIGNAL.receiver().unwrap();
     let mut imu_receiver = IMU_SIGNAL.receiver().unwrap();
     let mut ultrasonic_receiver = ULTRASONIC_WATCH.receiver().unwrap();
+    let mut barometer_receiver = BMP390_WATCH.receiver().unwrap();
+
     let mut gps_altitude: f32 = 0.0;
+    let mut gps_available: bool = false;
     let mut gps_altitude_acc: f32 = 0.0;
     let mut gps_locked_sats: u8 = 0;
     let mut accel_vertical_speed: f32 = 0.0;
     let mut accel_rel_altitude: f32 = 0.0;
     let mut ultrasonic_rel_altitude: f32 = 0.0;
     let mut is_ultrasonic_valid: bool = false;
+    let mut barometer_pressure: f32 = 0.0;
+    let mut barometer_height: f32 = 0.0;
+    let mut h0 = NAN;
+    let mut temperature: f32 = 0.0;
+    let mut t0 = NAN;
 
     let mut last_imu = Instant::now();
 
     let mut last_print = Instant::now();
+    let mut last_update = Instant::now();
+
+    // let mut estimator = AltitudeEstimator::new();
+    let since_start = Instant::now();
+    // let mut state = BaroErrorState::new();
+    // let mut filter = create_altitude_filter();
+    // let mut baro_measurement = LinearMeasurement::new(
+    //     Matrix1x2::new(1.0, 0.0),
+    //     SMatrix::identity(),
+    //     Matrix1::new(R_BAROMETER),
+    // );
+    // let mut gps_measurement = LinearMeasurement::new(
+    //     Matrix1x2::new(1.0, 0.0),
+    //     SMatrix::identity(),
+    //     Matrix1::new(R_GPS),
+    // );
 
     loop {
-        let gps_payload_recv = gps_receiver.try_changed();
-        if gps_payload_recv.is_some() {
-            let gps_payload = gps_payload_recv.unwrap();
-            gps_altitude = gps_payload.msl_height;
-            gps_altitude_acc = gps_payload.vertical_accuracy_estimate;
-            gps_locked_sats = gps_payload.sat_num;
-        }
+        let dt = (last_update.elapsed().as_micros() as f32) / 1_000_000.0;
+        last_update = Instant::now();
 
         let imu_recv = imu_receiver.try_changed();
         if imu_recv.is_some() {
@@ -489,9 +545,41 @@ async fn position_hold_loop() {
                 + (imu_data.1 .1.cos() * imu_data.1 .0.cos()) * imu_data.2 .2)
                 - 1.0;
             let dt = (last_imu.elapsed().as_micros() as f32) / 1_000_000.0;
+            last_imu = Instant::now();
             accel_vertical_speed += (vertical_accel * GRAVITY) * dt;
             accel_rel_altitude += accel_vertical_speed * dt;
-            last_imu = Instant::now();
+
+            // use the update accel data to predict the state
+            // filter.predict(Matrix1::new(accel_rel_altitude as f64));
+        }
+
+        let barometer_recv = barometer_receiver.try_changed();
+        if barometer_recv.is_some() {
+            let barometer_payload = barometer_recv.unwrap();
+            if h0.is_nan() {
+                h0 = barometer_payload.0;
+                t0 = barometer_payload.1;
+            }
+            barometer_pressure = barometer_payload.0;
+            temperature = barometer_payload.1;
+            barometer_height = barometer_payload.2;
+
+            // baro_measurement.set_measurement(Matrix1::new(barometer_altitude as f64));
+            // filter.update(&baro_measurement);
+        }
+
+        let gps_payload_recv = gps_receiver.try_changed();
+        if gps_payload_recv.is_some() {
+            let gps_payload = gps_payload_recv.unwrap();
+            gps_altitude = gps_payload.msl_height;
+            gps_altitude_acc = gps_payload.vertical_accuracy_estimate;
+            gps_locked_sats = gps_payload.sat_num;
+            gps_available = gps_payload.sat_num >= 4;
+
+            // gps_measurement.set_measurement(Matrix1::new(gps_altitude as f64));
+            // filter.update(&gps_measurement);
+        } else {
+            gps_available = false;
         }
 
         let ultrasonic_recv = ultrasonic_receiver.try_changed();
@@ -530,11 +618,17 @@ async fn position_hold_loop() {
             } else {
                 tc_println!("Ultrasonic Altitude: invalid");
             }
+            // tc_println!("Barometer Altitude: {} m", barometer_altitude);
+            tc_println!("Filtered Altitude: {} m", barometer_height);
 
             last_print = Instant::now();
         }
 
-        Timer::after_millis(1).await;
+        Timer::after_micros(
+            ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) - last_update.elapsed().as_micros() as f64)
+                as u64,
+        )
+        .await;
     }
 }
 
@@ -812,6 +906,7 @@ async fn usb_task(mut usb: UsbDevice<'static, Driver<'static, USB>>) {
 async fn bmp_loop(
     mut bmp: Bmp390<I2cDevice<'static, CriticalSectionRawMutex, I2c<'static, I2C0, Async>>>,
 ) {
+    let barometer_sender = BMP390_WATCH.sender();
     let base_altitude = get_base_altitude(&mut bmp).await;
     loop {
         Timer::after_millis(50).await;
@@ -820,7 +915,13 @@ async fn bmp_loop(
             let mut shared = SHARED.lock().await;
             shared.sensor_data.estimated_altitude = measurement.value - base_altitude;
         }
+        let pressure = bmp.pressure().await.unwrap();
         let temp = bmp.temperature().await.unwrap();
+        barometer_sender.send((
+            pressure.get::<kilopascal>(),
+            temp.get::<kelvin>(),
+            measurement.get::<meter>(),
+        ));
         TEMPERATURE.signal(temp.value);
     }
 }

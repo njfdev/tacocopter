@@ -961,6 +961,7 @@ dependencies = [
  "static_cell",
  "tb6612fng",
  "tc_interface",
+ "uom",
  "usbd-hid",
 ]
 
