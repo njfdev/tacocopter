@@ -1,10 +1,13 @@
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::{
     bind_interrupts,
-    i2c::{Async, Config, I2c, Instance, InterruptHandler, SclPin, SdaPin},
+    i2c::{self, Async, Config, Instance, InterruptHandler, SclPin, SdaPin},
     peripherals::I2C0,
     Peripheral,
 };
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Instant;
+use embedded_hal_async::i2c::I2c;
 use log::error;
 use log::info;
 use micromath::F32Ext;
@@ -25,12 +28,8 @@ enum PM02DReg {
     Current = 0x07,
 }
 
-bind_interrupts!(struct I2CIrqs {
-  I2C0_IRQ => InterruptHandler<I2C0>;
-});
-
 pub struct PM02D {
-    i2c: I2c<'static, I2C0, Async>,
+    i2c: I2cDevice<'static, CriticalSectionRawMutex, i2c::I2c<'static, I2C0, Async>>,
     total_used_capacity: f32,
     last_capacity_update: Option<Instant>,
 }
@@ -60,13 +59,9 @@ const LIPO_VOLTAGE_CHARGE_LUT: [(f32, f32); 21] = [
 ];
 
 impl PM02D {
-    pub async fn new<Sda: SdaPin<I2C0>, Scl: SclPin<I2C0>>(
-        sda: Sda,
-        scl: Scl,
-        i2c_interface: I2C0,
+    pub async fn new(
+        i2c: I2cDevice<'static, CriticalSectionRawMutex, i2c::I2c<'static, I2C0, Async>>,
     ) -> Self {
-        let i2c = I2c::new_async(i2c_interface, scl, sda, I2CIrqs, Config::default());
-
         let mut new_pm02d = Self {
             i2c,
             total_used_capacity: 0.0,
@@ -80,9 +75,9 @@ impl PM02D {
     async fn set_shunt_cal(&mut self) {
         let result = self
             .i2c
-            .write_async(
+            .write(
                 PM02D_ADDR,
-                [
+                &[
                     PM02DReg::ShuntCalibration as u8,
                     (SHUNT_CAL >> 8) as u8,
                     (SHUNT_CAL & 0xff) as u8,
@@ -95,9 +90,9 @@ impl PM02D {
         let mut bus_voltage_bytes: [u8; 3] = [0, 0, 0];
         let result = self
             .i2c
-            .write_read_async(
+            .write_read(
                 PM02D_ADDR,
-                [PM02DReg::BusVoltage as u8],
+                &[PM02DReg::BusVoltage as u8],
                 &mut bus_voltage_bytes,
             )
             .await;
@@ -120,7 +115,7 @@ impl PM02D {
         let mut current_bytes: [u8; 3] = [0, 0, 0];
         let result = self
             .i2c
-            .write_read_async(PM02D_ADDR, [PM02DReg::Current as u8], &mut current_bytes)
+            .write_read(PM02D_ADDR, &[PM02DReg::Current as u8], &mut current_bytes)
             .await;
 
         if result.is_err() {

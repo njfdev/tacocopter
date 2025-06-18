@@ -11,8 +11,10 @@ pub mod pm02d;
 pub mod tc_log;
 // pub mod mpu6050;
 
+use core::cell::RefCell;
 use core::cmp::min;
 use core::f32::consts::PI;
+use core::ops::Deref;
 use core::str::FromStr;
 
 use crate::m100_gps::GPSPayload;
@@ -21,6 +23,8 @@ use defmt::println;
 use dshot_pio::dshot_embassy_rp::DshotPio;
 use dshot_pio::DshotPioTrait;
 use elrs::{crc8, init_elrs};
+use embassy_embedded_hal::shared_bus;
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::{Executor, Spawner};
 use embassy_futures::select::{select, Either};
 use embassy_futures::yield_now;
@@ -66,9 +70,9 @@ use {defmt_rtt as _, panic_probe as _};
 bind_interrupts!(struct UsbIrq {
     USBCTRL_IRQ => InterruptHandler<USB>;
 });
-// bind_interrupts!(struct I2CIrqs {
-//   I2C0_IRQ => i2c::InterruptHandler<I2C0>;
-// });
+bind_interrupts!(struct I2C0Irqs {
+  I2C0_IRQ => i2c::InterruptHandler<I2C0>;
+});
 bind_interrupts!(struct I2C1Irqs {
   I2C1_IRQ => i2c::InterruptHandler<I2C1>;
 });
@@ -235,18 +239,33 @@ async fn main(spawner: Spawner) {
     //     .spawn(calc_ultrasonic_distance(p.PIN_16, p.PIN_17))
     //     .unwrap();
 
-    // let mut bmp390_conf = bmp390::Configuration::default();
-    // bmp390_conf.iir_filter.iir_filter = bmp390::IirFilter::coef_3;
-    // bmp390_conf.output_data_rate.odr_sel = OdrSel::ODR_25;
-    // bmp390_conf.oversampling.pressure = Oversampling::X16;
-    // bmp390_conf.power_control.enable_temperature = true;
-    // bmp390_conf.power_control.enable_pressure = true;
-    // bmp390_conf.power_control.mode = PowerMode::Normal;
-    // let i2c = I2c::new_async(p.I2C0, p.PIN_13, p.PIN_12, I2CIrqs, i2c::Config::default());
-    // let mut bmp = Bmp390::try_new(i2c, bmp390::Address::Up, Delay, &bmp390_conf)
-    //     .await
-    //     .unwrap();
-    // spawner.spawn(bmp_loop(bmp)).unwrap();
+    static I2C0_BUS: StaticCell<Mutex<CriticalSectionRawMutex, I2c<'_, I2C0, Async>>> =
+        StaticCell::new();
+    let i2c0: I2c<'static, I2C0, Async> =
+        I2c::new_async(p.I2C0, p.PIN_21, p.PIN_20, I2C0Irqs, i2c::Config::default());
+    let i2c0_bus = Mutex::new(i2c0);
+    let i2c0_bus = I2C0_BUS.init(i2c0_bus);
+
+    // let i2c0_bus: &'static _ = shared_bus::new_cortexm!(<I2c<'static, I2C0, Async> = i2c0).unwrap();
+
+    let mut bmp390_conf = bmp390::Configuration::default();
+    bmp390_conf.iir_filter.iir_filter = bmp390::IirFilter::coef_3;
+    bmp390_conf.output_data_rate.odr_sel = OdrSel::ODR_25;
+    bmp390_conf.oversampling.pressure = Oversampling::X16;
+    bmp390_conf.power_control.enable_temperature = true;
+    bmp390_conf.power_control.enable_pressure = true;
+    bmp390_conf.power_control.mode = PowerMode::Normal;
+    // let i2c = I2c::new_async(p.I2C0, p.PIN_13, p.PIN_12, I2C0Irqs, i2c::Config::default());
+    let mut bmp: Bmp390<I2cDevice<'_, CriticalSectionRawMutex, I2c<'_, I2C0, Async>>> =
+        Bmp390::try_new(
+            I2cDevice::new(i2c0_bus),
+            bmp390::Address::Up,
+            Delay,
+            &bmp390_conf,
+        )
+        .await
+        .unwrap();
+    spawner.spawn(bmp_loop(bmp)).unwrap();
 
     let mut dshot = DshotPio::<4, _>::new(
         p.PIO0,
@@ -286,7 +305,7 @@ async fn main(spawner: Spawner) {
         },
     );
 
-    let mut pm02d_interface = PM02D::new(p.PIN_20, p.PIN_21, p.I2C0).await;
+    let mut pm02d_interface = PM02D::new(I2cDevice::new(i2c0_bus)).await;
     let mut gps_receiver = GPS_SIGNAL.receiver().unwrap();
 
     loop {
@@ -790,7 +809,9 @@ async fn usb_task(mut usb: UsbDevice<'static, Driver<'static, USB>>) {
 }
 
 #[embassy_executor::task]
-async fn bmp_loop(mut bmp: Bmp390<I2c<'static, I2C0, Async>>) {
+async fn bmp_loop(
+    mut bmp: Bmp390<I2cDevice<'static, CriticalSectionRawMutex, I2c<'static, I2C0, Async>>>,
+) {
     let base_altitude = get_base_altitude(&mut bmp).await;
     loop {
         Timer::after_millis(50).await;
@@ -1215,7 +1236,9 @@ fn bubble_sort<T: PartialOrd>(arr: &mut [T]) {
     }
 }
 
-async fn get_base_altitude(bmp: &mut Bmp390<I2c<'_, I2C0, Async>>) -> f32 {
+async fn get_base_altitude(
+    bmp: &mut Bmp390<I2cDevice<'static, CriticalSectionRawMutex, I2c<'static, I2C0, Async>>>,
+) -> f32 {
     const AMOUNT_OF_SAMPLES: usize = 200;
     let mut data_points: [f32; AMOUNT_OF_SAMPLES] = [0.0; AMOUNT_OF_SAMPLES];
 
