@@ -19,6 +19,7 @@ use core::f32::NAN;
 use core::ops::Deref;
 use core::str::FromStr;
 
+use crate::altitude_estimator::{AltitudeEstimator, ACCEL_VERTICAL_BIAS};
 use crate::m100_gps::GPSPayload;
 use bmp390::{Bmp390, OdrSel, Oversampling, PowerMode};
 use defmt::println;
@@ -137,6 +138,7 @@ static ULTRASONIC_WATCH: Watch<CriticalSectionRawMutex, f32, 1> = Watch::new();
 static BMP390_WATCH: Watch<CriticalSectionRawMutex, (f32, f32, f32), 1> = Watch::new();
 // processed in position hold control loop, for use in the control loop under position hold mode
 static CURRENT_ALTITUDE: Watch<CriticalSectionRawMutex, f32, 1> = Watch::new();
+static ARMED_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
 // In celsius
 static TEMPERATURE: Signal<ThreadModeRawMutex, f32> = Signal::new();
 
@@ -305,6 +307,7 @@ async fn main(spawner: Spawner) {
     // let mut pwm = Pwm::new_output_a(p.PWM_SLICE1, p.PIN_2, c.clone());
     // pwm.set_duty_cycle_percent(10).unwrap();
     // Timer::after_secs(2).await;
+    let _ = spawner.spawn(dshot_handler(dshot));
 
     // run dshot and ultrasonic sensor on other core
     spawn_core1(
@@ -314,7 +317,6 @@ async fn main(spawner: Spawner) {
             let executor = EXECUTOR1.init(Executor::new());
             executor.run(|spawner| {
                 let _ = spawner.spawn(calc_ultrasonic_height_agl(p.PIN_16, p.PIN_17));
-                let _ = spawner.spawn(dshot_handler(dshot));
                 let _ = spawner.spawn(control_loop());
                 let _ = spawner.spawn(position_hold_loop());
             })
@@ -519,7 +521,8 @@ async fn position_hold_loop() {
     let mut last_print = Instant::now();
     let mut last_update = Instant::now();
 
-    // let mut estimator = AltitudeEstimator::new();
+    let mut estimator = AltitudeEstimator::new();
+    let mut can_estimate_altitude = false;
     let since_start = Instant::now();
     // let mut state = BaroErrorState::new();
     // let mut filter = create_altitude_filter();
@@ -535,23 +538,34 @@ async fn position_hold_loop() {
     // );
 
     let altitude_sender = CURRENT_ALTITUDE.sender();
+    let mut armed_receiver = ARMED_WATCH.receiver().unwrap();
+    let mut is_armed = false;
 
     loop {
         let dt = (last_update.elapsed().as_micros() as f32) / 1_000_000.0;
         last_update = Instant::now();
 
+        let armed_recv = armed_receiver.try_changed();
+        if armed_recv.is_some() {
+            is_armed = armed_recv.unwrap();
+        }
+
         let imu_recv = imu_receiver.try_changed();
         if imu_recv.is_some() {
             let imu_data = imu_recv.unwrap();
 
-            let vertical_accel = ((-imu_data.1 .1.sin()) * imu_data.2 .0
+            let mut vertical_accel = ((-imu_data.1 .1.sin()) * imu_data.2 .0
                 + (imu_data.1 .1.cos() * imu_data.1 .0.sin()) * imu_data.2 .1
                 + (imu_data.1 .1.cos() * imu_data.1 .0.cos()) * imu_data.2 .2)
                 - 1.0;
             let dt = (last_imu.elapsed().as_micros() as f32) / 1_000_000.0;
             last_imu = Instant::now();
+            // tc_println!("Accel: {}", vertical_accel);
+            vertical_accel -= ACCEL_VERTICAL_BIAS;
             accel_vertical_speed += (vertical_accel * GRAVITY) * dt;
             accel_rel_altitude += accel_vertical_speed * dt;
+
+            estimator.update_accel(vertical_accel);
 
             // use the update accel data to predict the state
             // filter.predict(Matrix1::new(accel_rel_altitude as f64));
@@ -568,6 +582,8 @@ async fn position_hold_loop() {
             temperature = barometer_payload.1;
             barometer_height = barometer_payload.2;
 
+            estimator.update_barometer(barometer_height);
+
             // baro_measurement.set_measurement(Matrix1::new(barometer_altitude as f64));
             // filter.update(&baro_measurement);
         }
@@ -579,6 +595,10 @@ async fn position_hold_loop() {
             gps_altitude_acc = gps_payload.vertical_accuracy_estimate;
             gps_locked_sats = gps_payload.sat_num;
             gps_available = gps_payload.sat_num >= 4;
+
+            if gps_altitude_acc < 1.0 && gps_locked_sats >= 10 {
+                estimator.update_gps(gps_altitude, -gps_payload.down_vel);
+            }
 
             // gps_measurement.set_measurement(Matrix1::new(gps_altitude as f64));
             // filter.update(&gps_measurement);
@@ -598,6 +618,7 @@ async fn position_hold_loop() {
                 is_ultrasonic_valid = true;
                 ultrasonic_rel_altitude =
                     (ultrasonic_payload - ULTRASONIC_HEIGHT_ABOVE_BOTTOM).max(0.0);
+                estimator.update_ultrasonic(ultrasonic_rel_altitude);
             }
         }
 
@@ -625,9 +646,22 @@ async fn position_hold_loop() {
                 tc_println!("Ultrasonic Altitude: invalid");
             }
             // tc_println!("Barometer Altitude: {} m", barometer_altitude);
-            tc_println!("Filtered Altitude: {} m", barometer_height);
+            if can_estimate_altitude {
+                tc_println!("Filtered Altitude: {} m", (estimator.get_altitude_msl()));
+            } else {
+                tc_println!("Filtered Altitude: not ready");
+            }
 
             last_print = Instant::now();
+        }
+
+        if is_ultrasonic_valid && barometer_pressure != 0.0 && is_armed {
+            if gps_altitude_acc < 1.0 && gps_locked_sats >= 10 && !can_estimate_altitude {
+                can_estimate_altitude = true;
+                estimator.reset(barometer_height, gps_altitude);
+            }
+        } else {
+            can_estimate_altitude = false;
         }
 
         Timer::after_micros(
@@ -792,6 +826,7 @@ async fn control_loop() {
     let mut since_last_elrs_update = Instant::now();
 
     let mut imu_reciever = IMU_SIGNAL.receiver().unwrap();
+    let mut armed_sender = ARMED_WATCH.sender();
 
     loop {
         Timer::after_micros(
@@ -847,6 +882,7 @@ async fn control_loop() {
                 // rate_errors = imu_values;
             }
             armed = new_armed;
+            armed_sender.send(armed);
             let new_position_hold = elrs_input_to_percent(chnls[7], None) > 0.5;
             if position_hold == false && new_position_hold == true {
                 pid_altitude.reset_integral_term();

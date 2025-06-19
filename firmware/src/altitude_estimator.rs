@@ -1,78 +1,103 @@
-use nalgebra::ComplexField;
+use embassy_time::Instant;
 
-use crate::tc_println;
+use crate::GRAVITY;
 
-// in degrees celsius per meter
-pub const NOMINAL_LAPSE_RATE: f32 = -0.0065;
+// This value is determined after accel calibration, based on the quadcopter sitting flat on its landing gear
+// TODO: should be a part of accel calibration process
+pub const ACCEL_VERTICAL_BIAS: f32 = 0.003;
 
-pub struct BaroErrorState {
-    bias: f64,
-    bias_var: f64,
-    scale: f64,
-    scale_var: f64,
+pub struct AltitudeEstimator {
+    // estimated values
+    altitude_msl: f32,
+    vertical_vel: f32,
+
+    // state values
+    baro_offset: f32, // constantly adjusted by GPS (if GPS is lost, it will stay the same but the barometer will drift)
+    last_baro_height: f32, // used to estimate barometer vertical speed
+    ground_offset: f32, // based on ultrasonic sensor and used to calculate AGL even when ultrasonic is out of range
+
+    last_accel_update: Instant,
+    last_baro_update: Instant,
 }
 
-impl BaroErrorState {
+impl AltitudeEstimator {
     pub fn new() -> Self {
         Self {
-            bias: 0.0,
-            bias_var: 1.0,
-            scale: 0.0,
-            scale_var: 1.0,
+            altitude_msl: 0.0,
+            vertical_vel: 0.0,
+
+            baro_offset: 0.0,
+            last_baro_height: 0.0,
+            ground_offset: 0.0,
+
+            last_accel_update: Instant::now(),
+            last_baro_update: Instant::now(),
         }
     }
 
-    pub fn propagate_state(&mut self, q_bias: f64, q_scale: f64) {
-        self.bias_var += q_bias;
-        self.scale_var += q_scale;
+    // Only call when arming and the drone is not moving and there is an accurate satellite fix (e.g., sats > 10 and vertical accuracy <1m), and the ultrasonic sensor is 0m
+    pub fn reset(&mut self, barometer_altitude: f32, gps_altitude: f32) {
+        self.altitude_msl = gps_altitude;
+        self.vertical_vel = 0.0;
+
+        self.baro_offset = gps_altitude - barometer_altitude;
+        self.last_baro_height = barometer_altitude + self.baro_offset;
+        self.ground_offset = gps_altitude;
+
+        self.last_accel_update = Instant::now();
+        self.last_baro_update = Instant::now();
     }
 
-    pub fn temperature_update(
-        &mut self,
-        lambda: f64,
-        pred_height: f64,
-        temp: f64,
-        lapse_rate: f64,
-        t0: f64,
-        h0: f64,
-        r_lambda: f64,
-    ) {
-        let expected_lambda = (temp - (t0 + lapse_rate * (pred_height - h0))) / t0;
-        let innovation = lambda - expected_lambda;
-        let kalman_gain = self.scale_var / (self.scale_var + r_lambda);
-        self.scale += kalman_gain * innovation;
-        self.scale_var *= 1.0 - kalman_gain;
+    // expects an acceleration in Gs with the gravity vector removed and is compensation for orientation
+    pub fn update_accel(&mut self, corrected_accel: f32) {
+        let dt = (self.last_accel_update.elapsed().as_micros() as f32) / 1_000_000.0;
+        self.last_accel_update = Instant::now();
+        self.vertical_vel += (corrected_accel - ACCEL_VERTICAL_BIAS) * dt * GRAVITY;
+        self.altitude_msl += self.vertical_vel * dt;
     }
 
-    pub fn gps_update(&mut self, gps_height: f64, raw_baro: f64, r_gps: f64, r_baro: f64) {
-        let corrected_baro = self.correct_height(raw_baro);
-        let innovation = gps_height - corrected_baro;
-        let total_var = r_gps + r_baro;
-
-        // Update scale and bias jointly using simplified gains
-        let gain_scale = self.scale_var / (self.scale_var + total_var);
-        let gain_bias = self.bias_var / (self.bias_var + total_var);
-
-        // These update rules ensure correct direction of correction
-        let denom = (1.0 + self.scale).powi(2);
-        self.scale += gain_scale * innovation * raw_baro / denom;
-        self.scale_var *= 1.0 - gain_scale;
-
-        self.bias += gain_bias * innovation / (1.0 + self.scale);
-        self.bias_var *= 1.0 - gain_bias;
-
-        // tc_println!("gps_height: {}", gps_height);
-        // tc_println!("raw_baro: {}", raw_baro);
-        // tc_println!("corrected_baro: {}", corrected_baro);
-        // tc_println!("innovation: {}", innovation);
-        // tc_println!("gain_scale: {}", gain_scale);
-        // tc_println!("gain_bias: {}", gain_bias);
-        // tc_println!("scale_var: {}", (self.scale_var));
-        // tc_println!("bias_var: {}", (self.bias_var));
-        // tc_println!("bias: {}, scale: {}", (self.bias), (self.scale));
+    pub fn update_ultrasonic(&mut self, ultrasonic_dist: f32) {
+        self.ground_offset = self.altitude_msl - ultrasonic_dist;
     }
 
-    pub fn correct_height(&self, raw_baro: f64) -> f64 {
-        (raw_baro - self.bias) / (1.0 + self.scale)
+    pub fn update_barometer(&mut self, barometer_altitude: f32) {
+        // get deltaTime
+        let dt = (self.last_baro_update.elapsed().as_micros() as f32) / 1_000_000.0;
+        self.last_baro_update = Instant::now();
+
+        // get corrected barometer altitude
+        let corrected = self.baro_offset + barometer_altitude;
+
+        // calc altitude difference, and move altitude to be more accurate
+        self.altitude_msl += (corrected - self.altitude_msl) * 0.07;
+
+        // calc vertical speed, vertical speed difference, and move vertical speed to be more accurate
+        let baro_vs = (corrected - self.last_baro_height) / dt;
+        self.vertical_vel += (baro_vs - self.vertical_vel) * 0.07;
+        self.last_baro_height = corrected;
+    }
+
+    // updates absolute altitude, vertical speed, and makes corrects to barometer offset
+    pub fn update_gps(&mut self, gps_altitude: f32, gps_vertical_speed: f32) {
+        // calc altitude difference, and move altitude to be more accurate
+        self.altitude_msl += (gps_altitude - self.altitude_msl) * 0.004;
+
+        // calc vertical speed difference, and move vertical speed to be more accurate
+        self.vertical_vel += (gps_vertical_speed - self.vertical_vel) * 0.004;
+
+        // calc altitude difference to barometer, and move barometer offset to be more accurate
+        self.baro_offset += (gps_altitude - self.last_baro_height) * 0.004;
+    }
+
+    pub fn get_altitude_msl(&self) -> f32 {
+        self.altitude_msl
+    }
+
+    pub fn get_altitude_agl(&self) -> f32 {
+        self.altitude_msl - self.ground_offset
+    }
+
+    pub fn get_vertical_velocity(&self) -> f32 {
+        self.vertical_vel
     }
 }
