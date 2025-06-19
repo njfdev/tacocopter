@@ -8,6 +8,7 @@ pub mod elrs;
 pub mod hc_sr04;
 pub mod kalman;
 pub mod m100_gps;
+pub mod moving_average;
 pub mod pm02d;
 pub mod tc_log;
 // pub mod mpu6050;
@@ -136,8 +137,9 @@ static GPS_SIGNAL: Watch<CriticalSectionRawMutex, GPSPayload, 2> = Watch::new();
 static ULTRASONIC_WATCH: Watch<CriticalSectionRawMutex, f32, 1> = Watch::new();
 // in format of (pressure in kPa, temperature in kelvin, estimated altitude in m)
 static BMP390_WATCH: Watch<CriticalSectionRawMutex, (f32, f32, f32), 1> = Watch::new();
-// processed in position hold control loop, for use in the control loop under position hold mode
-static CURRENT_ALTITUDE: Watch<CriticalSectionRawMutex, f32, 1> = Watch::new();
+// processed in position hold control loop, for use in the control loop under position hold mode (altitude, vertical velocity)
+static CURRENT_ALTITUDE: Watch<CriticalSectionRawMutex, (Option<f32>, Option<f32>), 1> =
+    Watch::new();
 static ARMED_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
 // In celsius
 static TEMPERATURE: Signal<ThreadModeRawMutex, f32> = Signal::new();
@@ -623,44 +625,49 @@ async fn position_hold_loop() {
         }
 
         altitude_sender.send(if can_estimate_altitude {
-            estimator.get_altitude_msl()
+            (
+                Some(estimator.get_altitude_msl()),
+                Some(estimator.get_vertical_velocity()),
+            )
         } else {
-            barometer_height
+            (None, None)
         });
 
         if (last_print.elapsed().as_millis() > 100) {
-            if gps_locked_sats > 0 {
-                tc_println!(
-                    "GPS Altitude ({}): {}m (Error: {}m)",
-                    (gps_locked_sats),
-                    (gps_altitude),
-                    (gps_altitude_acc)
-                );
-            } else {
-                tc_println!("GPS Altitude: sats not locked yet!");
-            }
-            tc_println!(
-                "Accel: Altitude={} m  -  VS={} m/s",
-                accel_rel_altitude,
-                accel_vertical_speed
-            );
-            if is_ultrasonic_valid {
-                tc_println!("Ultrasonic Altitude: {} m", ultrasonic_rel_altitude);
-            } else {
-                tc_println!("Ultrasonic Altitude: invalid");
-            }
-            // tc_println!("Barometer Altitude: {} m", barometer_altitude);
-            if can_estimate_altitude {
-                tc_println!("Filtered Altitude: {} m", (estimator.get_altitude_msl()));
-            } else {
-                tc_println!("Filtered Altitude: not ready");
-            }
+            // if gps_locked_sats > 0 {
+            //     tc_println!(
+            //         "GPS Altitude ({}): {}m (Error: {}m)",
+            //         (gps_locked_sats),
+            //         (gps_altitude),
+            //         (gps_altitude_acc)
+            //     );
+            // } else {
+            //     tc_println!("GPS Altitude: sats not locked yet!");
+            // }
+            // tc_println!(
+            //     "Accel: Altitude={} m  -  VS={} m/s",
+            //     accel_rel_altitude,
+            //     accel_vertical_speed
+            // );
+            // if is_ultrasonic_valid {
+            //     tc_println!("Ultrasonic Altitude: {} m", ultrasonic_rel_altitude);
+            // } else {
+            //     tc_println!("Ultrasonic Altitude: invalid");
+            // }
+            // tc_println!("Barometer Altitude: {} m", barometer_height);
+            // if can_estimate_altitude {
+            //     tc_println!("Filtered Altitude: {} m", (estimator.get_altitude_msl()));
+            //     tc_println!("Filtered VS: {} m/s", (estimator.get_vertical_velocity()));
+            // } else {
+            //     tc_println!("Filtered Altitude: not ready");
+            // }
 
             last_print = Instant::now();
         }
 
-        if is_ultrasonic_valid && barometer_pressure != 0.0 && is_armed {
-            if gps_altitude_acc < 1.0 && gps_locked_sats >= 10 && !can_estimate_altitude {
+        if barometer_pressure != 0.0 && is_armed {
+            //l&& is_ultrasonic_valid
+            if !can_estimate_altitude && gps_altitude_acc < 1.0 && gps_locked_sats >= 10 {
                 can_estimate_altitude = true;
                 estimator.reset(barometer_height, gps_altitude);
             }
@@ -797,13 +804,13 @@ async fn control_loop() {
     pid_pitch.d(0.00013, 0.1);
 
     // vertical pid
-    let mut pid_altitude = Pid::new(0.0, 7.5); // up to 7.5 m/s corrections
-    pid_altitude.p(5.0, 7.5);
+    let mut pid_altitude = Pid::new(0.0, 2.0); // up to 2 m/s corrections
+    pid_altitude.p(4.0, 7.5);
     pid_altitude.i(0.0, 7.5);
     pid_altitude.d(0.8, 7.5);
-    let mut pid_vs = Pid::new(0.0, 0.5);
-    pid_vs.p(0.06, 0.4);
-    pid_vs.i(0.0002, 0.1);
+    let mut pid_vs = Pid::new(0.0, 0.3);
+    pid_vs.p(0.05, 0.4);
+    pid_vs.i(0.001, 0.1);
     pid_vs.d(0.0, 0.4);
 
     // elrs controls
@@ -832,6 +839,8 @@ async fn control_loop() {
     let mut imu_reciever = IMU_SIGNAL.receiver().unwrap();
     let mut armed_sender = ARMED_WATCH.sender();
 
+    let mut should_use_position_hold = false;
+
     loop {
         Timer::after_micros(
             1_000_000 / (UPDATE_LOOP_FREQUENCY as u64) - since_last_loop.elapsed().as_micros(),
@@ -841,17 +850,20 @@ async fn control_loop() {
         since_last_loop = Instant::now();
 
         let altitude_recv = altitude_receiver.try_changed();
-        if altitude_recv.is_some() && (current_altitude.is_some() || altitude_recv.unwrap() != 0.0)
+        if altitude_recv.is_some()
+            && (current_altitude.is_some() || altitude_recv.unwrap().0.is_some())
         {
+            let altitude_data = altitude_recv.unwrap();
             if current_altitude.is_none() {
-                target_altitude = altitude_recv.unwrap();
+                target_altitude = altitude_data.0.unwrap();
             }
-            current_altitude = altitude_recv;
-            current_vertical_speed = if last_altitude.is_some() {
-                (current_altitude.unwrap() - last_altitude.unwrap()) * dt
-            } else {
-                0.0
-            };
+            current_altitude = altitude_data.0;
+            current_vertical_speed = altitude_data.1.unwrap();
+            // current_vertical_speed = if last_altitude.is_some() {
+            //     (current_altitude.unwrap() - last_altitude.unwrap()) * dt
+            // } else {
+            //     0.0
+            // };
         }
 
         let imu_recv = imu_reciever.try_get();
@@ -914,17 +926,26 @@ async fn control_loop() {
         let pid_yaw_output = pid_yaw.next_control_output(rate_errors.2).output;
 
         let mut pid_vs_output = 0.0;
-        let should_use_position_hold =
-            position_hold && current_altitude.is_some() && throttle_input > 0.3;
+        let new_should_use_position_hold = position_hold
+            && current_altitude.is_some()
+            && (throttle_input > 0.3 || should_use_position_hold)
+            && armed;
+        let reset_position_hold_data = new_should_use_position_hold && !should_use_position_hold;
+        if (reset_position_hold_data) {
+            target_altitude = current_altitude.unwrap();
+            pid_altitude.reset_integral_term();
+            pid_vs.reset_integral_term();
+        }
+        should_use_position_hold = new_should_use_position_hold;
         if should_use_position_hold {
             let pid_altitude_output = pid_altitude
-                .next_control_output(current_altitude.unwrap() - target_altitude)
+                .next_control_output(target_altitude - current_altitude.unwrap())
                 .output;
             pid_vs_output = pid_vs
-                .next_control_output(current_vertical_speed - pid_altitude_output)
+                .next_control_output(pid_altitude_output - current_vertical_speed)
                 .output;
-            tc_println!("PID Alt: {}", pid_altitude_output);
-            tc_println!("PID Output: {}", pid_vs_output);
+            // tc_println!("PID Alt: {}", pid_altitude_output);
+            // tc_println!("PID Output: {}", pid_vs_output);
         }
         // tc_println!("Current: {}", current_altitude);
 
