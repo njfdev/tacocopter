@@ -622,7 +622,11 @@ async fn position_hold_loop() {
             }
         }
 
-        altitude_sender.send(barometer_height);
+        altitude_sender.send(if can_estimate_altitude {
+            estimator.get_altitude_msl()
+        } else {
+            barometer_height
+        });
 
         if (last_print.elapsed().as_millis() > 100) {
             if gps_locked_sats > 0 {
@@ -798,7 +802,7 @@ async fn control_loop() {
     pid_altitude.i(0.0, 7.5);
     pid_altitude.d(0.8, 7.5);
     let mut pid_vs = Pid::new(0.0, 0.5);
-    pid_vs.p(0.05, 0.4);
+    pid_vs.p(0.06, 0.4);
     pid_vs.i(0.0002, 0.1);
     pid_vs.d(0.0, 0.4);
 
