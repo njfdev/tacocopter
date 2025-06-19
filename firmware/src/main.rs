@@ -1,17 +1,9 @@
 #![no_std]
 #![no_main]
 
-//pub mod bmp390;
-// pub mod dshot;
-pub mod altitude_estimator;
-pub mod elrs;
-pub mod hc_sr04;
-pub mod kalman;
-pub mod m100_gps;
-pub mod moving_average;
-pub mod pm02d;
+pub mod drivers;
 pub mod tc_log;
-// pub mod mpu6050;
+pub mod tools;
 
 use core::cell::RefCell;
 use core::cmp::min;
@@ -20,13 +12,15 @@ use core::f32::NAN;
 use core::ops::Deref;
 use core::str::FromStr;
 
-use crate::altitude_estimator::{AltitudeEstimator, ACCEL_VERTICAL_BIAS};
-use crate::m100_gps::GPSPayload;
+use crate::drivers::m100_gps::GPSPayload;
+use crate::tools::altitude_estimator::{AltitudeEstimator, ACCEL_VERTICAL_BIAS};
 use bmp390::{Bmp390, OdrSel, Oversampling, PowerMode};
 use defmt::println;
+use drivers::elrs::{crc8, init_elrs};
+use drivers::m100_gps::init_gps;
+use drivers::pm02d::PM02D;
 use dshot_pio::dshot_embassy_rp::DshotPio;
 use dshot_pio::DshotPioTrait;
-use elrs::{crc8, init_elrs};
 use embassy_embedded_hal::shared_bus;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::{Executor, Spawner};
@@ -53,21 +47,18 @@ use embassy_usb::driver::{EndpointIn, EndpointOut};
 use embassy_usb::{Builder, UsbDevice};
 use embedded_io_async::Write;
 use heapless::{String, Vec};
-use kalman::KalmanFilterQuat;
 use kfilter::measurement::{LinearMeasurement, Measurement};
 use kfilter::system::System;
 use kfilter::{
     Kalman, Kalman1M, KalmanFilter, KalmanLinear, KalmanPredict, KalmanPredictInput, KalmanUpdate,
 };
 use log::{error, info, warn};
-use m100_gps::init_gps;
 use micromath::F32Ext;
 use mpu6050::Mpu6050;
 use nalgebra::{
     Matrix1, Matrix1x2, Matrix2, Matrix2x1, Quaternion, SMatrix, SVector, UnitQuaternion, Vector3,
 };
 use pid::Pid;
-use pm02d::PM02D;
 use postcard::from_bytes;
 use static_cell::StaticCell;
 use tc_interface::{
@@ -75,6 +66,7 @@ use tc_interface::{
     SensorCalibrationData, SensorData, StartGyroCalibrationData, StateData, TCMessage, TC_PID,
     TC_VID,
 };
+use tools::kalman::KalmanFilterQuat;
 use uom::si::length::meter;
 use uom::si::pressure::kilopascal;
 use uom::si::thermodynamic_temperature::kelvin;
