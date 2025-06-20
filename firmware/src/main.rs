@@ -186,17 +186,17 @@ pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let config = setup_clock_speeds(150_000_000);
+    // let config = setup_clock_speeds(250_000_000);
 
-    let p = embassy_rp::init(config);
-
-    // set up serial logging over USB
-    let driver = Driver::new(p.USB, UsbIrq);
-    // spawner.spawn(logger_task(driver)).unwrap();
+    let p = embassy_rp::init(Default::default());
 
     // turn on the onboard LED to make it clear the device is on
     let mut led = Output::new(p.PIN_25, Level::Low);
     led.set_high();
+
+    // set up serial logging over USB
+    let driver = Driver::new(p.USB, UsbIrq);
+    // spawner.spawn(logger_task(driver)).unwrap();
 
     let i2c = i2c::I2c::new_async(p.I2C1, p.PIN_15, p.PIN_14, I2C1Irqs, i2c::Config::default());
     let mut mpu = Mpu6050::new(i2c);
