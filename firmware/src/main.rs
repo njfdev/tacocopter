@@ -2,6 +2,7 @@
 #![no_main]
 
 pub mod drivers;
+pub mod setup;
 pub mod tc_log;
 pub mod tools;
 
@@ -17,6 +18,7 @@ use crate::drivers::elrs::elrs_tx_packets::{
 };
 use crate::drivers::elrs::{Elrs, ElrsTxPacket};
 use crate::drivers::m100_gps::GPSPayload;
+use crate::setup::setup_clock_speeds;
 use crate::tools::altitude_estimator::{AltitudeEstimator, ACCEL_VERTICAL_BIAS};
 use bmp390::{Bmp390, OdrSel, Oversampling, PowerMode};
 use defmt::println;
@@ -30,6 +32,7 @@ use embassy_executor::{Executor, Spawner};
 use embassy_futures::select::{select, Either};
 use embassy_futures::yield_now;
 use embassy_rp::block::ImageDef;
+use embassy_rp::clocks::clk_sys_freq;
 use embassy_rp::gpio::{Input, Level, Output, Pin, Pull};
 use embassy_rp::i2c::{self, Async, I2c};
 use embassy_rp::multicore::{spawn_core1, Stack};
@@ -183,7 +186,9 @@ pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_rp::init(Default::default());
+    let config = setup_clock_speeds(150_000_000);
+
+    let p = embassy_rp::init(config);
 
     // set up serial logging over USB
     let driver = Driver::new(p.USB, UsbIrq);
@@ -498,6 +503,8 @@ async fn main(spawner: Spawner) {
             //     ])
             //     .await
             //     .unwrap();
+
+            tc_println!("Clock_freq: {}", (clk_sys_freq()));
         }
     }
 }
