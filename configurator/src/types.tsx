@@ -4,10 +4,13 @@ export type Message =
   | { Sensor: Sensor }
   | { SensorCalibration: SensorCalibration }
   | { ElrsChannels: ElrsChannels }
-  | { Log: LogData };
+  | { Log: LogBuffer };
 
 export interface State {
-  sensor_update_rate: number;
+  target_update_rate: number;
+  imu_update_rate: number;
+  control_loop_update_rate: number;
+  position_hold_loop_update_rate: number;
 }
 
 export interface ImuSensor {

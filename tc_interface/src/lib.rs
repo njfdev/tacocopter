@@ -35,7 +35,10 @@ pub struct SensorCalibrationData {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct StateData {
-    pub sensor_update_rate: f32,
+    pub target_update_rate: f32,
+    pub imu_update_rate: f32,
+    pub control_loop_update_rate: f32,
+    pub position_hold_loop_update_rate: f32,
 }
 
 // #[derive(Serialize, Deserialize, Clone, Debug)]

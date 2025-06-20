@@ -203,7 +203,7 @@ function MainInterface({ tcData }: { tcData: TCData }) {
   return (
     <main className="flex flex-col h-screen">
       <div className="flex h-[80vh] w-[80vw]">
-        <div className="w-[25%]">
+        <div className="w-[30%]">
           <p>
             Orientation X: {(tcData.imuSensors.orientation[0] / Math.PI) * 180}
             <br />
@@ -232,7 +232,15 @@ function MainInterface({ tcData }: { tcData: TCData }) {
             {(tcData.imuSensors.accel_orientation[2] / Math.PI) * 180}
             <br />
             <br />
-            Sensor Update Frequency: {tcData.state.sensor_update_rate} hz
+            Target Update Frequency: {tcData.state.target_update_rate} hz
+            <br />
+            IMU Update Frequency: {tcData.state.imu_update_rate} hz
+            <br />
+            Control Loop Update Frequency:{" "}
+            {tcData.state.control_loop_update_rate} hz
+            <br />
+            Position Hold Loop Update Frequency:{" "}
+            {tcData.state.position_hold_loop_update_rate} hz
             <br />
             Estimated Altitude: {tcData.sensors.estimated_altitude} m
             <br />

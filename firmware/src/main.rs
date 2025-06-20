@@ -118,7 +118,7 @@ struct SharedState {
 // pub static SHARED_LOG: Mutex<ThreadModeRawMutex, String<16384>> = Mutex::new(String::new());
 static LOG_CHANNEL: Channel<CriticalSectionRawMutex, String<60>, 64> = Channel::new();
 
-static ELRS_SIGNAL: Signal<ThreadModeRawMutex, [u16; 16]> = Signal::new();
+static ELRS_SIGNAL: Signal<CriticalSectionRawMutex, [u16; 16]> = Signal::new();
 // The first 3 numbers are the IMU Rates in radians per second, the second 3 are for the estimated orientation, and the last three are the accel values
 static IMU_SIGNAL: Watch<
     CriticalSectionRawMutex,
@@ -126,7 +126,7 @@ static IMU_SIGNAL: Watch<
     3,
 > = Watch::new();
 // (armed, throttle_percent, motor_powers)
-static CONTROL_LOOP_VALUES: Signal<ThreadModeRawMutex, (bool, f32, [f32; 4])> = Signal::new();
+static CONTROL_LOOP_VALUES: Signal<CriticalSectionRawMutex, (bool, f32, [f32; 4])> = Signal::new();
 static GPS_SIGNAL: Watch<CriticalSectionRawMutex, GPSPayload, 2> = Watch::new();
 // measured height in m
 static ULTRASONIC_WATCH: Watch<CriticalSectionRawMutex, f32, 1> = Watch::new();
@@ -137,11 +137,14 @@ static CURRENT_ALTITUDE: Watch<CriticalSectionRawMutex, (Option<f32>, Option<f32
     Watch::new();
 static ARMED_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
 // In celsius
-static TEMPERATURE: Signal<ThreadModeRawMutex, f32> = Signal::new();
+static TEMPERATURE: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 
-pub static SHARED: Mutex<ThreadModeRawMutex, SharedState> = Mutex::new(SharedState {
+pub static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(SharedState {
     state_data: StateData {
-        sensor_update_rate: UPDATE_LOOP_FREQUENCY as f32,
+        target_update_rate: UPDATE_LOOP_FREQUENCY as f32,
+        imu_update_rate: 0.0,
+        control_loop_update_rate: 0.0,
+        position_hold_loop_update_rate: 0.0,
     },
     imu_sensor_data: ImuSensorData {
         // gyroscope: [0.0, 0.0, 0.0],
@@ -701,6 +704,11 @@ async fn position_hold_loop() {
             can_estimate_altitude = false;
         }
 
+        {
+            let mut shared = SHARED.lock().await;
+            shared.state_data.position_hold_loop_update_rate = 1.0 / dt;
+        }
+
         Timer::after_micros(
             ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) - last_update.elapsed().as_micros() as f64)
                 as u64,
@@ -998,6 +1006,11 @@ async fn control_loop() {
         CONTROL_LOOP_VALUES.signal((armed, throttle_input, [t1, t2, t3, t4]));
 
         last_altitude = current_altitude;
+
+        {
+            let mut shared = SHARED.lock().await;
+            shared.state_data.control_loop_update_rate = 1.0 / dt;
+        }
     }
 }
 
@@ -1117,6 +1130,7 @@ async fn usb_updater(
         usb_send.write(&buffer).await.unwrap();
 
         // send state data
+        postcard::to_slice(&TCMessage::State(state_data), &mut buffer).unwrap();
         usb_send.write(&buffer).await.unwrap();
 
         // send imu sensor data
@@ -1227,7 +1241,7 @@ fn kalman_1d(
     [state.clone(), uncertainty.clone()]
 }
 
-const UPDATE_LOOP_FREQUENCY: f64 = 200.0;
+const UPDATE_LOOP_FREQUENCY: f64 = 500.0;
 #[embassy_executor::task]
 async fn mpu6050_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
     // TODO: fix integration of gyro data (e.g. tilting, moving yaw, then tilting back changes yaw from starting point)
@@ -1332,7 +1346,7 @@ async fn mpu6050_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
                     .unwrap();
             shared.imu_sensor_data.gyro_orientation = gyro_angles;
             shared.imu_sensor_data.orientation = orientation_quaternion;
-            shared.state_data.sensor_update_rate = (iterations as f32) * LOGGER_RATE;
+            shared.state_data.imu_update_rate = 1.0 / delta;
             shared.calibration_data.accel_calibration = accel_data;
             iterations = 0;
             //info!("Estimated rotation: {:?}", rotation);
