@@ -234,7 +234,9 @@ function MainInterface({ tcData }: { tcData: TCData }) {
             <br />
             Target Update Frequency: {tcData.state.target_update_rate} hz
             <br />
-            IMU Update Frequency: {tcData.state.imu_update_rate} hz
+            IMU Fetch Frequency: {tcData.state.imu_fetch_rate} hz
+            <br />
+            IMU Process Frequency: {tcData.state.imu_process_rate} hz
             <br />
             Control Loop Update Frequency:{" "}
             {tcData.state.control_loop_update_rate} hz

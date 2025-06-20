@@ -136,13 +136,16 @@ static BMP390_WATCH: Watch<CriticalSectionRawMutex, (f32, f32, f32), 1> = Watch:
 static CURRENT_ALTITUDE: Watch<CriticalSectionRawMutex, (Option<f32>, Option<f32>), 2> =
     Watch::new();
 static ARMED_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
+// first 3 f32s are the gyroscope data, the second are the accelerometer data
+static IMU_RAW_SIGNAL: Signal<CriticalSectionRawMutex, ([f32; 3], [f32; 3])> = Signal::new();
 // In celsius
 static TEMPERATURE: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 
 pub static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(SharedState {
     state_data: StateData {
         target_update_rate: UPDATE_LOOP_FREQUENCY as f32,
-        imu_update_rate: 0.0,
+        imu_fetch_rate: 0.0,
+        imu_process_rate: 0.0,
         control_loop_update_rate: 0.0,
         position_hold_loop_update_rate: 0.0,
     },
@@ -251,7 +254,8 @@ async fn main(spawner: Spawner) {
     let mut gps = init_gps(p.PIN_8, p.PIN_9, p.UART1, &spawner).await;
 
     spawner.spawn(usb_updater(bulk_in_ep, bulk_out_ep)).unwrap();
-    spawner.spawn(mpu6050_loop(mpu)).unwrap();
+    spawner.spawn(mpu6050_fetcher_loop(mpu)).unwrap();
+    spawner.spawn(mpu6050_processor_loop()).unwrap();
 
     // spawner
     //     .spawn(calc_ultrasonic_distance(p.PIN_16, p.PIN_17))
@@ -1241,9 +1245,42 @@ fn kalman_1d(
     [state.clone(), uncertainty.clone()]
 }
 
-const UPDATE_LOOP_FREQUENCY: f64 = 500.0;
+const UPDATE_LOOP_FREQUENCY: f64 = 200.0;
 #[embassy_executor::task]
-async fn mpu6050_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
+async fn mpu6050_fetcher_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
+    let mut last_loop = Instant::now();
+    loop {
+        let time_to_wait = ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) as u64)
+            .checked_sub(last_loop.elapsed().as_micros());
+        Timer::after_micros(if time_to_wait.is_some() {
+            time_to_wait.unwrap()
+        } else {
+            0
+        })
+        .await;
+        let frequency = 1_000_000.0 / last_loop.elapsed().as_micros() as f32;
+        last_loop = Instant::now();
+
+        let gyro_data: [f32; 3] = correct_biases(
+            mpu.get_gyro().unwrap().as_slice().try_into().unwrap(),
+            GYRO_BIASES,
+        );
+        let accel_data: [f32; 3] = correct_biases(
+            mpu.get_acc().unwrap().as_slice().try_into().unwrap(),
+            ACCEL_BIASES,
+        );
+
+        IMU_RAW_SIGNAL.signal((gyro_data, accel_data));
+
+        {
+            let mut shared = SHARED.lock().await;
+            shared.state_data.imu_fetch_rate = frequency;
+        }
+    }
+}
+
+#[embassy_executor::task]
+async fn mpu6050_processor_loop() {
     // TODO: fix integration of gyro data (e.g. tilting, moving yaw, then tilting back changes yaw from starting point)
     let mut rotation_q = UnitQuaternion::identity();
     let mut kalman = KalmanFilterQuat::new();
@@ -1274,14 +1311,10 @@ async fn mpu6050_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
             0
         })
         .await;
-        let gyro_data: [f32; 3] = correct_biases(
-            mpu.get_gyro().unwrap().as_slice().try_into().unwrap(),
-            GYRO_BIASES,
-        );
-        let accel_data: [f32; 3] = correct_biases(
-            mpu.get_acc().unwrap().as_slice().try_into().unwrap(),
-            ACCEL_BIASES,
-        );
+
+        // fetch imu data from other task
+        let (gyro_data, accel_data) = IMU_RAW_SIGNAL.wait().await;
+
         let ending = Instant::now();
         let delta = (ending
             .checked_duration_since(since_last)
@@ -1346,19 +1379,20 @@ async fn mpu6050_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
                     .unwrap();
             shared.imu_sensor_data.gyro_orientation = gyro_angles;
             shared.imu_sensor_data.orientation = orientation_quaternion;
-            shared.state_data.imu_update_rate = 1.0 / delta;
+            shared.state_data.imu_process_rate = 1.0 / delta;
             shared.calibration_data.accel_calibration = accel_data;
             iterations = 0;
             //info!("Estimated rotation: {:?}", rotation);
 
-            should_start_gyro_calib = !shared.gyro_calibration_state.is_finished;
+            // should_start_gyro_calib = !shared.gyro_calibration_state.is_finished;
         }
 
-        // if need to start gyro calibration, do it
-        if should_start_gyro_calib {
-            get_gyro_offsets(&mut mpu).await;
-            start = Instant::now();
-        }
+        // TODO: make gyro calibration work again
+        // // if need to start gyro calibration, do it
+        // if should_start_gyro_calib {
+        //     get_gyro_offsets(&mut mpu).await;
+        //     start = Instant::now();
+        // }
 
         iterations += 1;
     }
