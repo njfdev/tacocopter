@@ -72,6 +72,7 @@ pid = "4.0.0"
 hcsr04_async = "0.4.0"
 kfilter = "0.4.0"
 uom = { version = "0.36", default-features = false, features = ["autoconvert", "f32", "f64", "si"] }
+dshot-pio = { git = "https://github.com/njfdev/dshot-pio.git", features = ["embassy-rp"] }
 
 [profile.release]
 debug = 2
