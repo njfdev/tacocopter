@@ -259,8 +259,6 @@ async fn main(spawner: Spawner) {
     let mut gps = init_gps(p.PIN_8, p.PIN_9, p.UART1, &spawner).await;
 
     spawner.spawn(usb_updater(bulk_in_ep, bulk_out_ep)).unwrap();
-    spawner.spawn(mpu6050_fetcher_loop(mpu)).unwrap();
-    spawner.spawn(mpu6050_processor_loop()).unwrap();
 
     // spawner
     //     .spawn(calc_ultrasonic_distance(p.PIN_16, p.PIN_17))
@@ -318,6 +316,8 @@ async fn main(spawner: Spawner) {
     // Timer::after_secs(2).await;
     let _ = spawner.spawn(dshot_handler(dshot));
 
+    spawner.spawn(mpu6050_fetcher_loop(mpu)).unwrap();
+
     // run dshot and ultrasonic sensor on other core
     spawn_core1(
         p.CORE1,
@@ -328,6 +328,7 @@ async fn main(spawner: Spawner) {
                 let _ = spawner.spawn(calc_ultrasonic_height_agl(p.PIN_16, p.PIN_17));
                 let _ = spawner.spawn(control_loop());
                 let _ = spawner.spawn(position_hold_loop());
+                spawner.spawn(mpu6050_processor_loop()).unwrap();
             })
         },
     );
@@ -1194,7 +1195,7 @@ async fn usb_updater(
 
         match select(
             usb_read.read(&mut buffer),
-            Timer::after(Instant::now().duration_since(start)),
+            Timer::after(time_between - Instant::now().elapsed()),
         )
         .await
         {
@@ -1252,7 +1253,7 @@ fn kalman_1d(
     [state.clone(), uncertainty.clone()]
 }
 
-const UPDATE_LOOP_FREQUENCY: f64 = 200.0;
+const UPDATE_LOOP_FREQUENCY: f64 = 250.0;
 #[embassy_executor::task]
 async fn mpu6050_fetcher_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
     let mut last_loop = Instant::now();
