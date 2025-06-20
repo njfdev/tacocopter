@@ -11,10 +11,12 @@ use embassy_sync::{
 };
 use embassy_time::Timer;
 use embedded_io_async::{Read, Write};
+use heapless::Vec;
 use log::{error, info, warn};
 use static_cell::StaticCell;
 
 use crate::{
+    concat_elrs_bytes,
     drivers::elrs::{
         elrs_rx::elrs_receive_handler,
         elrs_tx_packets::{BarometerAltitudePacket, BatteryStatePacket, GPSPacket},
@@ -75,11 +77,86 @@ impl Elrs {
         Self { uart_tx: tx }
     }
 
-    pub fn crc8(data: &[u8], len: usize) -> u8 {
+    pub fn crc8(data: &[u8]) -> u8 {
+        let len = data.len();
         let mut crc: u8 = 0;
         for i in 0..len {
             crc = CRC8TAB[(crc ^ data[i as usize]) as usize];
         }
         crc
+    }
+
+    fn get_altitude_packed(altitude: f32) -> u16 {
+        let altitude_dm = ((altitude * 10.0) + 0.5) as i32;
+        if altitude_dm < -10000 {
+            return 0; // if less than minimum altitude, return min
+        } else if altitude_dm > 0x7ffe * 10 - 5 {
+            return 0xfffe;
+        } else if altitude_dm < 0x8000 - 10000 {
+            return (altitude_dm + 10000) as u16; // if altitude is in dm-resolution range
+        }
+        return (((altitude_dm + 5) / 10) as u16) | 0x8000;
+    }
+
+    pub async fn send_packet(&mut self, packet: ElrsTxPacket) {
+        let frame_type: u8;
+        let frame_bytes: Vec<u8, 64>;
+        // let frame_bytes_len: usize;
+
+        match packet {
+            ElrsTxPacket::BarometerAltitude(packet) => {
+                frame_type = 0x09;
+                let packed_altitude = Elrs::get_altitude_packed(packet.altitude).to_be_bytes();
+                let packed_vs = ((packet.vertical_speed * 100.0) as i16).to_be_bytes();
+                frame_bytes = concat_elrs_bytes!(packed_altitude, packed_vs);
+            }
+            ElrsTxPacket::BatteryState(packet) => {
+                frame_type = 0x08;
+                let packed_voltage = ((packet.voltage * 10.0) as u16).to_be_bytes();
+                let packed_current = ((packet.current * 10.0) as u16).to_be_bytes();
+                let packed_capacity = (packet.capacity as u32).to_be_bytes();
+                let packed_remaining = (packet.battery_percentage as u8).to_be_bytes();
+                frame_bytes = concat_elrs_bytes!(
+                    packed_voltage,
+                    packed_current,
+                    [packed_capacity[1], packed_capacity[2], packed_capacity[3]],
+                    packed_remaining
+                );
+            }
+            ElrsTxPacket::GPS(packet) => {
+                frame_type = 0x02;
+                let packed_latitude = ((packet.latitude * 10_000_000.0) as i32).to_be_bytes();
+                let packed_longitude = ((packet.longitude * 10_000_000.0) as i32).to_be_bytes();
+                let packed_ground_speed =
+                    ((packet.ground_speed * 10_000.0 / 3600.0) as u16).to_be_bytes();
+                let packed_gps_heading = ((packet.gps_heading * 100.0) as u16).to_be_bytes();
+                let packed_altitude = ((packet.gps_altitude + 1000.0) as u16).to_be_bytes();
+                let packed_num_sats = (packet.num_sats as u8).to_be_bytes();
+                frame_bytes = concat_elrs_bytes!(
+                    packed_latitude,
+                    packed_longitude,
+                    packed_ground_speed,
+                    packed_gps_heading,
+                    packed_altitude,
+                    packed_num_sats
+                )
+            }
+        }
+
+        let frame_data = concat_elrs_bytes!([frame_type], frame_bytes.iter().map(|val| *val));
+
+        let checksum = Elrs::crc8(frame_data.as_slice());
+
+        let _ = self
+            .uart_tx
+            .write_all(
+                concat_elrs_bytes!(
+                    [0xc8, frame_data.len() as u8 + 1],
+                    frame_data.iter().map(|val| *val),
+                    [checksum]
+                )
+                .as_slice(),
+            )
+            .await;
     }
 }

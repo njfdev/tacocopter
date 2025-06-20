@@ -12,11 +12,14 @@ use core::f32::NAN;
 use core::ops::Deref;
 use core::str::FromStr;
 
+use crate::drivers::elrs::elrs_tx_packets::{
+    BarometerAltitudePacket, BatteryStatePacket, GPSPacket,
+};
+use crate::drivers::elrs::{Elrs, ElrsTxPacket};
 use crate::drivers::m100_gps::GPSPayload;
 use crate::tools::altitude_estimator::{AltitudeEstimator, ACCEL_VERTICAL_BIAS};
 use bmp390::{Bmp390, OdrSel, Oversampling, PowerMode};
 use defmt::println;
-use drivers::elrs::{crc8, init_elrs};
 use drivers::m100_gps::init_gps;
 use drivers::pm02d::PM02D;
 use dshot_pio::dshot_embassy_rp::DshotPio;
@@ -130,7 +133,7 @@ static ULTRASONIC_WATCH: Watch<CriticalSectionRawMutex, f32, 1> = Watch::new();
 // in format of (pressure in kPa, temperature in kelvin, estimated altitude in m)
 static BMP390_WATCH: Watch<CriticalSectionRawMutex, (f32, f32, f32), 1> = Watch::new();
 // processed in position hold control loop, for use in the control loop under position hold mode (altitude, vertical velocity)
-static CURRENT_ALTITUDE: Watch<CriticalSectionRawMutex, (Option<f32>, Option<f32>), 1> =
+static CURRENT_ALTITUDE: Watch<CriticalSectionRawMutex, (Option<f32>, Option<f32>), 2> =
     Watch::new();
 static ARMED_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
 // In celsius
@@ -240,7 +243,7 @@ async fn main(spawner: Spawner) {
     let usb = builder.build();
     spawner.spawn(usb_task(usb)).unwrap();
 
-    let mut elrs_tx = init_elrs(p.PIN_0, p.PIN_1, p.UART0, &spawner).await;
+    let mut elrs_handle = Elrs::new(p.PIN_0, p.PIN_1, p.UART0, &spawner);
 
     let mut gps = init_gps(p.PIN_8, p.PIN_9, p.UART1, &spawner).await;
 
@@ -320,6 +323,7 @@ async fn main(spawner: Spawner) {
     let mut pm02d_interface = PM02D::new(I2cDevice::new(i2c0_bus)).await;
     let mut gps_receiver = GPS_SIGNAL.receiver().unwrap();
 
+    let mut altitude_receiver = CURRENT_ALTITUDE.receiver().unwrap();
     loop {
         // let alt_packed = get_altitude_packed(measurement.value - base_altitude);
         // info!(
@@ -351,10 +355,30 @@ async fn main(spawner: Spawner) {
         Timer::after_millis(10).await;
         led.set_high();
         Timer::after_millis(10).await;
+        let altitude_recv = altitude_receiver.try_changed();
+        if altitude_recv.is_some() {
+            let altitude_packet = altitude_recv.unwrap();
+            // This is technically not just a barometer reading, but this is a better estimation using more sensors
+            elrs_handle
+                .send_packet(ElrsTxPacket::BarometerAltitude(BarometerAltitudePacket {
+                    altitude: altitude_packet.0.unwrap_or_default(),
+                    vertical_speed: altitude_packet.1.unwrap_or_default(),
+                }))
+                .await;
+        }
+
         let voltage = pm02d_interface.get_voltage().await;
         let current = pm02d_interface.get_current().await;
         let capacity = 5200;
         let (percent, mins_remaining) = pm02d_interface.estimate_battery_charge(4, capacity).await;
+        elrs_handle
+            .send_packet(ElrsTxPacket::BatteryState(BatteryStatePacket {
+                voltage,
+                current,
+                capacity: capacity as u32,
+                battery_percentage: percent,
+            }))
+            .await;
         // // tc_println!("Voltage: {}V", voltage);
         // // tc_println!("Current: {}A", current);
         // // tc_println!(
@@ -367,96 +391,106 @@ async fn main(spawner: Spawner) {
         // //     (pm02d_interface.get_used_capacity())
         // // );
 
-        let voltage_bytes = ((voltage * 10.0) as u16).to_be_bytes();
-        let current_bytes = ((current * 10.0) as u16).to_be_bytes();
-        let capacity_bytes = (capacity as u32).to_be_bytes();
-        let remaining_bytes = (percent as u8).to_be_bytes();
-        elrs_tx
-            .write_all(&[
-                0xc8,
-                0x0a,
-                0x08,
-                voltage_bytes[0],
-                voltage_bytes[1],
-                current_bytes[0],
-                current_bytes[1],
-                capacity_bytes[1],
-                capacity_bytes[2],
-                capacity_bytes[3],
-                remaining_bytes[0],
-                crc8(
-                    &[
-                        0x08,
-                        voltage_bytes[0],
-                        voltage_bytes[1],
-                        current_bytes[0],
-                        current_bytes[1],
-                        capacity_bytes[1],
-                        capacity_bytes[2],
-                        capacity_bytes[3],
-                        remaining_bytes[0],
-                    ],
-                    9,
-                ),
-            ])
-            .await
-            .unwrap();
+        // let voltage_bytes = ((voltage * 10.0) as u16).to_be_bytes();
+        // let current_bytes = ((current * 10.0) as u16).to_be_bytes();
+        // let capacity_bytes = (capacity as u32).to_be_bytes();
+        // let remaining_bytes = (percent as u8).to_be_bytes();
+        // elrs_tx
+        //     .write_all(&[
+        //         0xc8,
+        //         0x0a,
+        //         0x08,
+        //         voltage_bytes[0],
+        //         voltage_bytes[1],
+        //         current_bytes[0],
+        //         current_bytes[1],
+        //         capacity_bytes[1],
+        //         capacity_bytes[2],
+        //         capacity_bytes[3],
+        //         remaining_bytes[0],
+        //         crc8(
+        //             &[
+        //                 0x08,
+        //                 voltage_bytes[0],
+        //                 voltage_bytes[1],
+        //                 current_bytes[0],
+        //                 current_bytes[1],
+        //                 capacity_bytes[1],
+        //                 capacity_bytes[2],
+        //                 capacity_bytes[3],
+        //                 remaining_bytes[0],
+        //             ],
+        //             9,
+        //         ),
+        //     ])
+        //     .await
+        //     .unwrap();
 
         let gps_payload_res = gps_receiver.try_get();
         if gps_payload_res.is_some() {
             let gps_payload = gps_payload_res.unwrap();
+            elrs_handle
+                .send_packet(ElrsTxPacket::GPS(GPSPacket {
+                    latitude: gps_payload.latitude,
+                    longitude: gps_payload.longitude,
+                    ground_speed: gps_payload.ground_speed,
+                    gps_heading: gps_payload.motion_heading,
+                    gps_altitude: gps_payload.msl_height,
+                    num_sats: gps_payload.sat_num,
+                }))
+                .await;
 
-            let latitude_bytes = ((gps_payload.latitude * 10_000_000.0) as i32).to_be_bytes();
-            let longitude_bytes = ((gps_payload.longitude * 10_000_000.0) as i32).to_be_bytes();
-            let ground_speed_bytes =
-                ((gps_payload.ground_speed * 10_000.0 / 3600.0) as u16).to_be_bytes();
-            let gps_heading = ((gps_payload.motion_heading * 100.0) as u16).to_be_bytes();
-            let altitude = ((gps_payload.msl_height + 1000.0) as u16).to_be_bytes();
-            let num_sats = (gps_payload.sat_num as u8).to_be_bytes();
-            elrs_tx
-                .write_all(&[
-                    0xc8,
-                    0x11,
-                    0x02,
-                    latitude_bytes[0],
-                    latitude_bytes[1],
-                    latitude_bytes[2],
-                    latitude_bytes[3],
-                    longitude_bytes[0],
-                    longitude_bytes[1],
-                    longitude_bytes[2],
-                    longitude_bytes[3],
-                    ground_speed_bytes[0],
-                    ground_speed_bytes[1],
-                    gps_heading[0],
-                    gps_heading[1],
-                    altitude[0],
-                    altitude[1],
-                    num_sats[0],
-                    crc8(
-                        &[
-                            0x02,
-                            latitude_bytes[0],
-                            latitude_bytes[1],
-                            latitude_bytes[2],
-                            latitude_bytes[3],
-                            longitude_bytes[0],
-                            longitude_bytes[1],
-                            longitude_bytes[2],
-                            longitude_bytes[3],
-                            ground_speed_bytes[0],
-                            ground_speed_bytes[1],
-                            gps_heading[0],
-                            gps_heading[1],
-                            altitude[0],
-                            altitude[1],
-                            num_sats[0],
-                        ],
-                        16,
-                    ),
-                ])
-                .await
-                .unwrap();
+            // let latitude_bytes = ((gps_payload.latitude * 10_000_000.0) as i32).to_be_bytes();
+            // let longitude_bytes = ((gps_payload.longitude * 10_000_000.0) as i32).to_be_bytes();
+            // let ground_speed_bytes =
+            //     ((gps_payload.ground_speed * 10_000.0 / 3600.0) as u16).to_be_bytes();
+            // let gps_heading = ((gps_payload.motion_heading * 100.0) as u16).to_be_bytes();
+            // let altitude = ((gps_payload.msl_height + 1000.0) as u16).to_be_bytes();
+            // let num_sats = (gps_payload.sat_num as u8).to_be_bytes();
+            // elrs_tx
+            //     .write_all(&[
+            //         0xc8,
+            //         0x11,
+            //         0x02,
+            //         latitude_bytes[0],
+            //         latitude_bytes[1],
+            //         latitude_bytes[2],
+            //         latitude_bytes[3],
+            //         longitude_bytes[0],
+            //         longitude_bytes[1],
+            //         longitude_bytes[2],
+            //         longitude_bytes[3],
+            //         ground_speed_bytes[0],
+            //         ground_speed_bytes[1],
+            //         gps_heading[0],
+            //         gps_heading[1],
+            //         altitude[0],
+            //         altitude[1],
+            //         num_sats[0],
+            //         crc8(
+            //             &[
+            //                 0x02,
+            //                 latitude_bytes[0],
+            //                 latitude_bytes[1],
+            //                 latitude_bytes[2],
+            //                 latitude_bytes[3],
+            //                 longitude_bytes[0],
+            //                 longitude_bytes[1],
+            //                 longitude_bytes[2],
+            //                 longitude_bytes[3],
+            //                 ground_speed_bytes[0],
+            //                 ground_speed_bytes[1],
+            //                 gps_heading[0],
+            //                 gps_heading[1],
+            //                 altitude[0],
+            //                 altitude[1],
+            //                 num_sats[0],
+            //             ],
+            //             16,
+            //         ),
+            //     ])
+            //     .await
+            //     .unwrap();
         }
     }
 }

@@ -1,19 +1,22 @@
 pub struct BarometerAltitudePacket {
     // in meters
-    baro_altitude: f32,
+    pub altitude: f32,
+    // in m/s
+    pub vertical_speed: f32,
 }
 
 pub struct BatteryStatePacket {
-    voltage: f32,
-    current: f32,
-    battery_percentage: f32,
+    pub voltage: f32,
+    pub current: f32,
+    pub capacity: u32,
+    pub battery_percentage: f32,
 }
 
 pub struct GPSPacket {
-    latitude: f64,
-    longitude: f64,
-    ground_speed: f32,
-    gps_heading: f32,
-    gps_altitude: f32,
-    num_sats: u8,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub ground_speed: f32,
+    pub gps_heading: f32,
+    pub gps_altitude: f32,
+    pub num_sats: u8,
 }

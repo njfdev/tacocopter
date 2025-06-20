@@ -67,18 +67,6 @@ pub async fn elrs_receive_handler(mut rx: BufferedUartRx<'static, UART0>) {
     }
 }
 
-fn get_altitude_packed(altitude: f32) -> u16 {
-    let altitude_dm = ((altitude * 10.0) + 0.5) as i32;
-    if altitude_dm < -10000 {
-        return 0; // if less than minimum altitude, return min
-    } else if altitude_dm > 0x7ffe * 10 - 5 {
-        return 0xfffe;
-    } else if altitude_dm < 0x8000 - 10000 {
-        return (altitude_dm + 10000) as u16; // if altitude is in dm-resolution range
-    }
-    return (((altitude_dm + 5) / 10) as u16) | 0x8000;
-}
-
 fn unpack_rc_bits(data: &[u8; 22]) -> [u16; 16] {
     let mut channels: [u16; 16] = [0; 16];
 
