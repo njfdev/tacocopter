@@ -244,6 +244,8 @@ function MainInterface({ tcData }: { tcData: TCData }) {
             Position Hold Loop Update Frequency:{" "}
             {tcData.state.position_hold_loop_update_rate} hz
             <br />
+            Uptime: {formatTime(tcData.state.uptime)}
+            <br />
             Estimated Altitude: {tcData.sensors.estimated_altitude} m
             <br />
             Ultrasonic Sensor: {tcData.sensors.ultrasonic_dist} cm
@@ -406,6 +408,27 @@ function Arrow({ parentMesh }: { parentMesh: any }) {
       </mesh>
     </group>
   );
+}
+
+function formatTime(total_seconds: number): string {
+  let time_string = "";
+
+  let seconds = String(total_seconds % 60).padStart(2, "0");
+  let total_minutes = Math.floor(total_seconds / 60);
+  let minutes = String(total_minutes % 60).padStart(2, "0");
+  let hours = String(Math.floor(total_minutes / 60)).padStart(2, "0");
+
+  if (total_minutes >= 60) {
+    time_string += hours + ":";
+  }
+
+  if (total_minutes > 0) {
+    time_string += minutes + ":";
+  }
+
+  time_string += seconds;
+
+  return time_string;
 }
 
 export default MainInterface;

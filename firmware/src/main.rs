@@ -151,6 +151,7 @@ pub static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(Shar
         imu_process_rate: 0.0,
         control_loop_update_rate: 0.0,
         position_hold_loop_update_rate: 0.0,
+        uptime: 0,
     },
     imu_sensor_data: ImuSensorData {
         // gyroscope: [0.0, 0.0, 0.0],
@@ -189,6 +190,8 @@ async fn main(spawner: Spawner) {
     // let config = setup_clock_speeds(250_000_000);
 
     let p = embassy_rp::init(Default::default());
+
+    let boot_time = Instant::now();
 
     // turn on the onboard LED to make it clear the device is on
     let mut led = Output::new(p.PIN_25, Level::Low);
@@ -258,7 +261,9 @@ async fn main(spawner: Spawner) {
 
     let mut gps = init_gps(p.PIN_8, p.PIN_9, p.UART1, &spawner).await;
 
-    spawner.spawn(usb_updater(bulk_in_ep, bulk_out_ep)).unwrap();
+    spawner
+        .spawn(usb_updater(bulk_in_ep, bulk_out_ep, boot_time))
+        .unwrap();
 
     // spawner
     //     .spawn(calc_ultrasonic_distance(p.PIN_16, p.PIN_17))
@@ -1114,6 +1119,7 @@ const LOGGER_RATE: f32 = 30.0;
 async fn usb_updater(
     mut usb_send: Endpoint<'static, USB, In>,
     mut usb_read: Endpoint<'static, USB, Out>,
+    boot_time: Instant,
 ) {
     let time_between = Duration::from_millis((1000.0 / LOGGER_RATE) as u64);
     let mut cur_log_id: u8 = 0;
@@ -1128,6 +1134,7 @@ async fn usb_updater(
         let elrs_channels: [u16; 16];
         {
             let mut shared = SHARED.lock().await;
+            shared.state_data.uptime = boot_time.elapsed().as_secs() as u32;
             state_data = shared.state_data.clone();
             imu_sensor_data = shared.imu_sensor_data.clone();
             sensor_data = shared.sensor_data.clone();

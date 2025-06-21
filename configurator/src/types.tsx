@@ -12,6 +12,7 @@ export interface State {
   imu_process_rate: number;
   control_loop_update_rate: number;
   position_hold_loop_update_rate: number;
+  uptime: number;
 }
 
 export interface ImuSensor {

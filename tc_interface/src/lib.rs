@@ -40,6 +40,8 @@ pub struct StateData {
     pub imu_process_rate: f32,
     pub control_loop_update_rate: f32,
     pub position_hold_loop_update_rate: f32,
+    // in seconds
+    pub uptime: u32,
 }
 
 // #[derive(Serialize, Deserialize, Clone, Debug)]
