@@ -1,18 +1,12 @@
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_rp::{
-    bind_interrupts,
-    i2c::{self, Async, Config, Instance, InterruptHandler, SclPin, SdaPin},
+    i2c::{self, Async},
     peripherals::I2C0,
-    Peripheral,
 };
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Instant;
 use embedded_hal_async::i2c::I2c;
-use log::error;
-use log::info;
 use micromath::F32Ext;
-
-use crate::tc_println;
 
 const PM02D_ADDR: u8 = 0x45;
 const MAX_CURRENT: f32 = 80.0;
@@ -73,8 +67,7 @@ impl PM02D {
     }
 
     async fn set_shunt_cal(&mut self) {
-        let result = self
-            .i2c
+        self.i2c
             .write(
                 PM02D_ADDR,
                 &[
@@ -83,7 +76,8 @@ impl PM02D {
                     (SHUNT_CAL & 0xff) as u8,
                 ],
             )
-            .await;
+            .await
+            .unwrap();
     }
 
     pub async fn get_voltage(&mut self) -> f32 {

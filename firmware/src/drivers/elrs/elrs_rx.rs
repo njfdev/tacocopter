@@ -20,7 +20,7 @@ pub async fn elrs_receive_handler(mut rx: BufferedUartRx<'static, UART0>) {
                 // tc_println!("Read 0 bytes");
                 Timer::after_millis(100).await;
             }
-            Err(e) => {
+            Err(_e) => {
                 // tc_println!("Read error: {:?}", e);
                 Timer::after_millis(100).await;
             }
@@ -86,37 +86,37 @@ fn unpack_rc_bits(data: &[u8; 22]) -> [u16; 16] {
     return channels;
 }
 
-fn print_link_statistics(data: &[u8; 10]) {
-    let up_rssi_ant1 = data[0] as i16 * -1;
-    let up_rssi_ant2 = data[1] as i16 * -1;
-    let up_link_quality = data[2];
-    let up_snr = data[3] as i8;
-    let active_ant = data[4];
-    let rf_profile = data[5];
-    let up_rf_power = data[6];
+// fn print_link_statistics(data: &[u8; 10]) {
+//     let up_rssi_ant1 = data[0] as i16 * -1;
+//     let up_rssi_ant2 = data[1] as i16 * -1;
+//     let up_link_quality = data[2];
+//     let up_snr = data[3] as i8;
+//     let active_ant = data[4];
+//     let rf_profile = data[5];
+//     let up_rf_power = data[6];
 
-    let down_rssi = data[7] as i16 * -1;
-    let down_link_quality = data[8];
-    let down_snr = data[9] as i8;
+//     let down_rssi = data[7] as i16 * -1;
+//     let down_link_quality = data[8];
+//     let down_snr = data[9] as i8;
 
-    tc_println!(
-        "Uplink: Ant1- {} dBm, Ant2- {} dBm, Qlty-{}%, SNR-{} dB, Actv-{}, Prof-{}, Pwr-{}dB",
-        up_rssi_ant1,
-        up_rssi_ant2,
-        up_link_quality,
-        up_snr,
-        (active_ant + 1),
-        rf_profile,
-        up_rf_power
-    );
+//     tc_println!(
+//         "Uplink: Ant1- {} dBm, Ant2- {} dBm, Qlty-{}%, SNR-{} dB, Actv-{}, Prof-{}, Pwr-{}dB",
+//         up_rssi_ant1,
+//         up_rssi_ant2,
+//         up_link_quality,
+//         up_snr,
+//         (active_ant + 1),
+//         rf_profile,
+//         up_rf_power
+//     );
 
-    tc_println!(
-        "Downlink: RSSI- {} dBm, Qlty-{}%, SNR-{} dB",
-        down_rssi,
-        down_link_quality,
-        down_snr
-    );
-}
+//     tc_println!(
+//         "Downlink: RSSI- {} dBm, Qlty-{}%, SNR-{} dB",
+//         down_rssi,
+//         down_link_quality,
+//         down_snr
+//     );
+// }
 
 // TODO: Verify with CRC
 async fn handle_packet(data: &[u8], len: usize) {

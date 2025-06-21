@@ -1,4 +1,3 @@
-use embassy_time::Timer;
 use micromath::F32Ext;
 use nalgebra::{Matrix3, Quaternion, UnitQuaternion, Vector3};
 

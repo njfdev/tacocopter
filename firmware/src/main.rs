@@ -2,15 +2,11 @@
 #![no_main]
 
 pub mod drivers;
-pub mod setup;
 pub mod tc_log;
 pub mod tools;
 
-use core::cell::RefCell;
-use core::cmp::min;
 use core::f32::consts::PI;
 use core::f32::NAN;
-use core::ops::Deref;
 use core::str::FromStr;
 
 use crate::drivers::elrs::elrs_tx_packets::{
@@ -18,52 +14,35 @@ use crate::drivers::elrs::elrs_tx_packets::{
 };
 use crate::drivers::elrs::{Elrs, ElrsTxPacket};
 use crate::drivers::m100_gps::GPSPayload;
-use crate::setup::setup_clock_speeds;
 use crate::tools::altitude_estimator::{AltitudeEstimator, ACCEL_VERTICAL_BIAS};
 use bmp390::{Bmp390, OdrSel, Oversampling, PowerMode};
-use defmt::println;
 use drivers::m100_gps::init_gps;
 use drivers::pm02d::PM02D;
 use dshot_pio::dshot_embassy_rp::DshotPio;
 use dshot_pio::DshotPioTrait;
-use embassy_embedded_hal::shared_bus;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::{Executor, Spawner};
 use embassy_futures::select::{select, Either};
 use embassy_futures::yield_now;
+use embassy_rp::bind_interrupts;
 use embassy_rp::block::ImageDef;
-use embassy_rp::clocks::clk_sys_freq;
-use embassy_rp::gpio::{Input, Level, Output, Pin, Pull};
+use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{self, Async, I2c};
 use embassy_rp::multicore::{spawn_core1, Stack};
-use embassy_rp::peripherals::{I2C0, I2C1, PIN_16, PIN_17, PIO0, UART0, USB};
-use embassy_rp::pwm::{Pwm, SetDutyCycle};
+use embassy_rp::peripherals::{I2C0, I2C1, PIN_16, PIN_17, PIO0, USB};
 use embassy_rp::usb::{Driver, Endpoint, In, InterruptHandler, Out};
-use embassy_rp::{bind_interrupts, pwm};
-use embassy_sync::blocking_mutex::raw::{
-    CriticalSectionRawMutex, NoopRawMutex, ThreadModeRawMutex,
-};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
-use embassy_sync::pubsub::PubSubChannel;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use embassy_time::{Delay, Duration, Instant, Timer};
 use embassy_usb::driver::{EndpointIn, EndpointOut};
 use embassy_usb::{Builder, UsbDevice};
-use embedded_io_async::Write;
-use heapless::{String, Vec};
-use kfilter::measurement::{LinearMeasurement, Measurement};
-use kfilter::system::System;
-use kfilter::{
-    Kalman, Kalman1M, KalmanFilter, KalmanLinear, KalmanPredict, KalmanPredictInput, KalmanUpdate,
-};
-use log::{error, info, warn};
+use heapless::String;
 use micromath::F32Ext;
 use mpu6050::Mpu6050;
-use nalgebra::{
-    Matrix1, Matrix1x2, Matrix2, Matrix2x1, Quaternion, SMatrix, SVector, UnitQuaternion, Vector3,
-};
+use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 use pid::Pid;
 use postcard::from_bytes;
 use static_cell::StaticCell;
@@ -93,7 +72,7 @@ bind_interrupts!(struct Pio0Irqs {
 });
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
-static EXECUTOR0: StaticCell<Executor> = StaticCell::new();
+// static EXECUTOR0: StaticCell<Executor> = StaticCell::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 
 #[embassy_executor::task]
@@ -109,7 +88,7 @@ pub const GRAVITY: f32 = 9.80665;
 
 // TODO: split this shared state for faster performance
 #[derive(Default)]
-struct SharedState {
+pub struct SharedState {
     pub state_data: StateData,
     pub imu_sensor_data: ImuSensorData,
     pub sensor_data: SensorData,
@@ -187,15 +166,9 @@ pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    // let config = setup_clock_speeds(250_000_000);
-
     let p = embassy_rp::init(Default::default());
 
     let boot_time = Instant::now();
-
-    // turn on the onboard LED to make it clear the device is on
-    let mut led = Output::new(p.PIN_25, Level::Low);
-    led.set_high();
 
     // set up serial logging over USB
     let driver = Driver::new(p.USB, UsbIrq);
@@ -239,18 +212,18 @@ async fn main(spawner: Spawner) {
     let mut builder = Builder::new(
         driver,
         config,
-        unsafe { &mut DEVICE_DESCRIPTOR },
-        unsafe { &mut CONFIG_DESCRIPTOR },
-        unsafe { &mut BOS_DESCRIPTOR },
-        unsafe { &mut CONTROL_BUF },
+        unsafe { &mut *&raw mut DEVICE_DESCRIPTOR },
+        unsafe { &mut *&raw mut CONFIG_DESCRIPTOR },
+        unsafe { &mut *&raw mut BOS_DESCRIPTOR },
+        unsafe { &mut *&raw mut CONTROL_BUF },
     );
 
     // Add bulk endpoints (OUT and IN)
     let mut function = builder.function(0xFF, 0, 0);
     let mut interface = function.interface();
     let mut alt = interface.alt_setting(0xFF, 0, 0, None);
-    let mut bulk_out_ep = alt.endpoint_bulk_out(64); // 64-byte packets
-    let mut bulk_in_ep = alt.endpoint_bulk_in(64); // 64-byte packets
+    let bulk_out_ep = alt.endpoint_bulk_out(64); // 64-byte packets
+    let bulk_in_ep = alt.endpoint_bulk_in(64); // 64-byte packets
     drop(function);
 
     // Build and run USB device
@@ -259,7 +232,7 @@ async fn main(spawner: Spawner) {
 
     let mut elrs_handle = Elrs::new(p.PIN_0, p.PIN_1, p.UART0, &spawner);
 
-    let mut gps = init_gps(p.PIN_8, p.PIN_9, p.UART1, &spawner).await;
+    let mut _gps = init_gps(p.PIN_8, p.PIN_9, p.UART1, &spawner).await;
 
     spawner
         .spawn(usb_updater(bulk_in_ep, bulk_out_ep, boot_time))
@@ -286,7 +259,7 @@ async fn main(spawner: Spawner) {
     bmp390_conf.power_control.enable_pressure = true;
     bmp390_conf.power_control.mode = PowerMode::Normal;
     // let i2c = I2c::new_async(p.I2C0, p.PIN_13, p.PIN_12, I2C0Irqs, i2c::Config::default());
-    let mut bmp: Bmp390<I2cDevice<'_, CriticalSectionRawMutex, I2c<'_, I2C0, Async>>> =
+    let bmp: Bmp390<I2cDevice<'_, CriticalSectionRawMutex, I2c<'_, I2C0, Async>>> =
         Bmp390::try_new(
             I2cDevice::new(i2c0_bus),
             bmp390::Address::Up,
@@ -297,7 +270,7 @@ async fn main(spawner: Spawner) {
         .unwrap();
     spawner.spawn(bmp_loop(bmp)).unwrap();
 
-    let mut dshot = DshotPio::<4, _>::new(
+    let dshot = DshotPio::<4, _>::new(
         p.PIO0,
         Pio0Irqs,
         p.PIN_2,
@@ -338,7 +311,11 @@ async fn main(spawner: Spawner) {
         },
     );
 
-    let mut pm02d_interface = PM02D::new(I2cDevice::new(i2c0_bus)).await;
+    // turn on the onboard LED to make it clear the device is on
+    let mut led = Output::new(p.PIN_25, Level::Low);
+    led.set_high();
+
+    // let mut pm02d_interface = PM02D::new(I2cDevice::new(i2c0_bus)).await;
     let mut gps_receiver = GPS_SIGNAL.receiver().unwrap();
 
     let mut altitude_receiver = CURRENT_ALTITUDE.receiver().unwrap();
@@ -385,18 +362,18 @@ async fn main(spawner: Spawner) {
                 .await;
         }
 
-        let voltage = pm02d_interface.get_voltage().await;
-        let current = pm02d_interface.get_current().await;
-        let capacity = 5200;
-        let (percent, mins_remaining) = pm02d_interface.estimate_battery_charge(4, capacity).await;
-        elrs_handle
-            .send_packet(ElrsTxPacket::BatteryState(BatteryStatePacket {
-                voltage,
-                current,
-                capacity: capacity as u32,
-                battery_percentage: percent,
-            }))
-            .await;
+        // let voltage = pm02d_interface.get_voltage().await;
+        // let current = pm02d_interface.get_current().await;
+        // let capacity = 5200;
+        // let (percent, _mins_remaining) = pm02d_interface.estimate_battery_charge(4, capacity).await;
+        // elrs_handle
+        //     .send_packet(ElrsTxPacket::BatteryState(BatteryStatePacket {
+        //         voltage,
+        //         current,
+        //         capacity: capacity as u32,
+        //         battery_percentage: percent,
+        //     }))
+        //     .await;
         // // tc_println!("Voltage: {}V", voltage);
         // // tc_println!("Current: {}A", current);
         // // tc_println!(
@@ -514,27 +491,27 @@ async fn main(spawner: Spawner) {
 }
 
 // Measurement noise for sensors
-const R_BAROMETER: f64 = 0.5;
-const R_GPS: f64 = 4.0;
+// const R_BAROMETER: f64 = 0.5;
+// const R_GPS: f64 = 4.0;
 
-fn create_altitude_filter() -> Kalman<f64, 2, 1, kfilter::system::LinearSystem<f64, 2, 1>> {
-    // Stater transition matrix (F)
-    let f = Matrix2::new(1.0, 1.0 / UPDATE_LOOP_FREQUENCY, 0.0, 1.0);
-    // Process Noise (q)
-    let b = Matrix2x1::new(
-        0.5 * (1.0 / UPDATE_LOOP_FREQUENCY) * (1.0 / UPDATE_LOOP_FREQUENCY),
-        1.0 / UPDATE_LOOP_FREQUENCY,
-    );
-    // Observation matrix (h) - only measuring altitude
-    let q = Matrix2::new(0.01, 0.0, 0.0, 0.1);
+// fn create_altitude_filter() -> Kalman<f64, 2, 1, kfilter::system::LinearSystem<f64, 2, 1>> {
+//     // Stater transition matrix (F)
+//     let f = Matrix2::new(1.0, 1.0 / UPDATE_LOOP_FREQUENCY, 0.0, 1.0);
+//     // Process Noise (q)
+//     let b = Matrix2x1::new(
+//         0.5 * (1.0 / UPDATE_LOOP_FREQUENCY) * (1.0 / UPDATE_LOOP_FREQUENCY),
+//         1.0 / UPDATE_LOOP_FREQUENCY,
+//     );
+//     // Observation matrix (h) - only measuring altitude
+//     let q = Matrix2::new(0.01, 0.0, 0.0, 0.1);
 
-    // initial state with (altitude, velocity)
-    let x_initial = Matrix2x1::new(0.0, 0.0);
-    // high uncertainty
-    let p_initial = Matrix2::identity() * 10.0;
+//     // initial state with (altitude, velocity)
+//     let x_initial = Matrix2x1::new(0.0, 0.0);
+//     // high uncertainty
+//     let p_initial = Matrix2::identity() * 10.0;
 
-    KalmanLinear::new_with_input(f, q, b, x_initial, p_initial)
-}
+//     KalmanLinear::new_with_input(f, q, b, x_initial, p_initial)
+// }
 
 // in m
 const ULTRASONIC_HEIGHT_ABOVE_BOTTOM: f32 = 0.1515;
@@ -549,18 +526,18 @@ async fn position_hold_loop() {
     let mut barometer_receiver = BMP390_WATCH.receiver().unwrap();
 
     let mut gps_altitude: f32 = 0.0;
-    let mut gps_available: bool = false;
+    let mut _gps_available: bool = false;
     let mut gps_altitude_acc: f32 = 0.0;
     let mut gps_locked_sats: u8 = 0;
     let mut accel_vertical_speed: f32 = 0.0;
-    let mut accel_rel_altitude: f32 = 0.0;
-    let mut ultrasonic_rel_altitude: f32 = 0.0;
-    let mut is_ultrasonic_valid: bool = false;
+    let mut _accel_rel_altitude: f32 = 0.0;
+    let mut _ultrasonic_rel_altitude: f32 = 0.0;
+    let mut _is_ultrasonic_valid: bool = false;
     let mut barometer_pressure: f32 = 0.0;
     let mut barometer_height: f32 = 0.0;
     let mut h0 = NAN;
-    let mut temperature: f32 = 0.0;
-    let mut t0 = NAN;
+    let mut _temperature: f32 = 0.0;
+    let mut _t0 = NAN;
 
     let mut last_imu = Instant::now();
 
@@ -569,7 +546,7 @@ async fn position_hold_loop() {
 
     let mut estimator = AltitudeEstimator::new();
     let mut can_estimate_altitude = false;
-    let since_start = Instant::now();
+    // let since_start = Instant::now();
     // let mut state = BaroErrorState::new();
     // let mut filter = create_altitude_filter();
     // let mut baro_measurement = LinearMeasurement::new(
@@ -609,7 +586,7 @@ async fn position_hold_loop() {
             // tc_println!("Accel: {}", vertical_accel);
             vertical_accel -= ACCEL_VERTICAL_BIAS;
             accel_vertical_speed += (vertical_accel * GRAVITY) * dt;
-            accel_rel_altitude += accel_vertical_speed * dt;
+            _accel_rel_altitude += accel_vertical_speed * dt;
 
             estimator.update_accel(vertical_accel);
 
@@ -622,10 +599,10 @@ async fn position_hold_loop() {
             let barometer_payload = barometer_recv.unwrap();
             if h0.is_nan() {
                 h0 = barometer_payload.0;
-                t0 = barometer_payload.1;
+                _t0 = barometer_payload.1;
             }
             barometer_pressure = barometer_payload.0;
-            temperature = barometer_payload.1;
+            _temperature = barometer_payload.1;
             barometer_height = barometer_payload.2;
 
             estimator.update_barometer(barometer_height);
@@ -640,7 +617,7 @@ async fn position_hold_loop() {
             gps_altitude = gps_payload.msl_height;
             gps_altitude_acc = gps_payload.vertical_accuracy_estimate;
             gps_locked_sats = gps_payload.sat_num;
-            gps_available = gps_payload.sat_num >= 4;
+            _gps_available = gps_payload.sat_num >= 4;
 
             if gps_altitude_acc < 1.0 && gps_locked_sats >= 10 {
                 estimator.update_gps(gps_altitude, -gps_payload.down_vel);
@@ -649,7 +626,7 @@ async fn position_hold_loop() {
             // gps_measurement.set_measurement(Matrix1::new(gps_altitude as f64));
             // filter.update(&gps_measurement);
         } else {
-            gps_available = false;
+            _gps_available = false;
         }
 
         let ultrasonic_recv = ultrasonic_receiver.try_changed();
@@ -659,12 +636,12 @@ async fn position_hold_loop() {
             if ultrasonic_payload.is_nan()
                 || ultrasonic_payload < ULTRASONIC_HEIGHT_ABOVE_BOTTOM / 3.0
             {
-                is_ultrasonic_valid = false;
+                _is_ultrasonic_valid = false;
             } else {
-                is_ultrasonic_valid = true;
-                ultrasonic_rel_altitude =
+                _is_ultrasonic_valid = true;
+                _ultrasonic_rel_altitude =
                     (ultrasonic_payload - ULTRASONIC_HEIGHT_ABOVE_BOTTOM).max(0.0);
-                estimator.update_ultrasonic(ultrasonic_rel_altitude);
+                estimator.update_ultrasonic(_ultrasonic_rel_altitude);
             }
         }
 
@@ -677,7 +654,7 @@ async fn position_hold_loop() {
             (None, None)
         });
 
-        if (last_print.elapsed().as_millis() > 100) {
+        if last_print.elapsed().as_millis() > 100 {
             // if gps_locked_sats > 0 {
             //     tc_println!(
             //         "GPS Altitude ({}): {}m (Error: {}m)",
@@ -740,10 +717,7 @@ async fn calc_ultrasonic_height_agl(trig_pin_peripheral: PIN_16, echo_pin_periph
     let mut imu_rotation = (0.0, 0.0, 0.0);
 
     let mut imu_reciever = IMU_SIGNAL.receiver().unwrap();
-    let mut ultrasonic_sender = ULTRASONIC_WATCH.sender();
-
-    let mut distance = 0.0;
-    let mut height_agl_m = 0.0;
+    let ultrasonic_sender = ULTRASONIC_WATCH.sender();
 
     // wait for 10 milliseconds for any signals to clear (e.g. the pin was held high by default, then low, so it triggers once)
     Timer::after_millis(10).await;
@@ -762,7 +736,7 @@ async fn calc_ultrasonic_height_agl(trig_pin_peripheral: PIN_16, echo_pin_periph
         let time = Instant::checked_duration_since(&after, start)
             .unwrap()
             .as_micros();
-        distance = if time / 1000 <= 50 {
+        let distance = if time / 1000 <= 50 {
             ((time as f32) * 0.000343) / 2.0
         } else {
             f32::NAN
@@ -775,7 +749,7 @@ async fn calc_ultrasonic_height_agl(trig_pin_peripheral: PIN_16, echo_pin_periph
 
         let angle_to_down_cos = imu_rotation.0.cos() * imu_rotation.1.cos();
         if angle_to_down_cos.acos() < PI / 6.0 && !distance.is_nan() {
-            height_agl_m = (angle_to_down_cos * distance)
+            let height_agl_m = (angle_to_down_cos * distance)
                 - (imu_rotation.0.sin() * ULTRASONIC_DISTANCE_TO_CENTER_PITCH);
             ultrasonic_sender.send(height_agl_m);
         } else {
@@ -866,19 +840,18 @@ async fn control_loop() {
     let mut armed = false;
     let mut position_hold = false;
     let mut throttle_input = 0.0;
-    let mut yaw_input = 0.0;
-    let mut roll_input = 0.0;
-    let mut pitch_input = 0.0;
+    let mut yaw_input;
+    let mut roll_input;
+    let mut pitch_input;
 
     // imu stuff
     let mut rate_errors = (0.0, 0.0, 0.0);
-    let mut imu_values = (0.0, 0.0, 0.0);
+    let mut _imu_values = (0.0, 0.0, 0.0);
     let mut imu_rates = (0.0, 0.0, 0.0);
 
     // altitude stuff
     let mut altitude_receiver = CURRENT_ALTITUDE.receiver().unwrap();
     let mut current_altitude = None;
-    let mut last_altitude = None;
     let mut target_altitude = 0.0;
     let mut current_vertical_speed = 0.0;
 
@@ -886,7 +859,7 @@ async fn control_loop() {
     let mut since_last_elrs_update = Instant::now();
 
     let mut imu_reciever = IMU_SIGNAL.receiver().unwrap();
-    let mut armed_sender = ARMED_WATCH.sender();
+    let armed_sender = ARMED_WATCH.sender();
 
     let mut should_use_position_hold = false;
 
@@ -933,7 +906,7 @@ async fn control_loop() {
                 imu_recv_values.0 .1,
                 imu_recv_values.0 .2,
             );
-            imu_values = imu_recv_values.1;
+            _imu_values = imu_recv_values.1;
         }
 
         let chnls_recv = ELRS_SIGNAL.try_take();
@@ -980,7 +953,7 @@ async fn control_loop() {
             && (throttle_input > 0.3 || should_use_position_hold)
             && armed;
         let reset_position_hold_data = new_should_use_position_hold && !should_use_position_hold;
-        if (reset_position_hold_data) {
+        if reset_position_hold_data {
             target_altitude = current_altitude.unwrap();
             pid_altitude.reset_integral_term();
             pid_vs.reset_integral_term();
@@ -1020,8 +993,6 @@ async fn control_loop() {
         }
         CONTROL_LOOP_VALUES.signal((armed, throttle_input, [t1, t2, t3, t4]));
 
-        last_altitude = current_altitude;
-
         {
             let mut shared = SHARED.lock().await;
             shared.state_data.control_loop_update_rate = 1.0 / dt;
@@ -1040,7 +1011,7 @@ async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
 
     let mut armed = false;
     let mut mtr_pwrs = [0.0, 0.0, 0.0, 0.0];
-    let mut since_last_throttle_update = Instant::now();
+    let mut _since_last_throttle_update = Instant::now();
     let mut time_since_armed = Instant::now();
 
     loop {
@@ -1059,7 +1030,7 @@ async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
                     dshot.command([0, 0, 0, 0]);
                 }
             }
-            since_last_throttle_update = Instant::now();
+            _since_last_throttle_update = Instant::now();
         }
         // let pwm_pwr = (((throttle - 176) as f32) / 1634.0) * 90.0 + 10.0;
         // pwm.set_duty_cycle_percent(dshot_cmd as u8).unwrap();
@@ -1124,8 +1095,6 @@ async fn usb_updater(
     let time_between = Duration::from_millis((1000.0 / LOGGER_RATE) as u64);
     let mut cur_log_id: u8 = 0;
     loop {
-        let start = Instant::now();
-
         let mut buffer = [0u8; 64];
         let state_data: StateData;
         let imu_sensor_data: ImuSensorData;
@@ -1217,19 +1186,21 @@ async fn usb_updater(
                         loop {
                             Timer::after(time_between).await;
 
-                            let mut shared = SHARED.lock().await;
+                            let calib_state;
+                            {
+                                let shared = SHARED.lock().await;
+                                calib_state = shared.gyro_calibration_state.clone();
+                            }
 
                             // indicate end of data
                             postcard::to_slice(
-                                &TCMessage::GyroCalibrationProgress(
-                                    shared.gyro_calibration_state.clone(),
-                                ),
+                                &TCMessage::GyroCalibrationProgress(calib_state.clone()),
                                 &mut buffer,
                             )
                             .unwrap();
                             usb_send.write(&buffer).await.unwrap();
 
-                            if shared.gyro_calibration_state.is_finished == true {
+                            if calib_state.is_finished == true {
                                 break;
                             }
                         }
@@ -1241,22 +1212,22 @@ async fn usb_updater(
     }
 }
 
-const GYRO_UNCERTAINTY: f32 = 2.0;
-const ACCEL_UNCERTAINTY: f32 = 3.0;
-fn kalman_1d(
-    state: &mut f32,
-    uncertainty: &mut f32,
-    input: f32,
-    measurement: f32,
-    delta: f32,
-) -> [f32; 2] {
-    *state += delta * input;
-    *uncertainty += delta.powi(2) * GYRO_UNCERTAINTY;
-    let gain = *uncertainty / (*uncertainty + ACCEL_UNCERTAINTY.powi(2));
-    *state += gain * (measurement - *state);
-    *uncertainty *= 1.0 - gain;
-    [state.clone(), uncertainty.clone()]
-}
+// const GYRO_UNCERTAINTY: f32 = 2.0;
+// const ACCEL_UNCERTAINTY: f32 = 3.0;
+// fn kalman_1d(
+//     state: &mut f32,
+//     uncertainty: &mut f32,
+//     input: f32,
+//     measurement: f32,
+//     delta: f32,
+// ) -> [f32; 2] {
+//     *state += delta * input;
+//     *uncertainty += delta.powi(2) * GYRO_UNCERTAINTY;
+//     let gain = *uncertainty / (*uncertainty + ACCEL_UNCERTAINTY.powi(2));
+//     *state += gain * (measurement - *state);
+//     *uncertainty *= 1.0 - gain;
+//     [state.clone(), uncertainty.clone()]
+// }
 
 const UPDATE_LOOP_FREQUENCY: f64 = 200.0;
 #[embassy_executor::task]
@@ -1298,18 +1269,18 @@ async fn mpu6050_processor_loop() {
     let mut rotation_q = UnitQuaternion::identity();
     let mut kalman = KalmanFilterQuat::new();
 
-    let mut filtered_orientation: [f32; 3] = [0.0; 3];
+    // let mut filtered_orientation: [f32; 3] = [0.0; 3];
 
     let imu_watch_sender = IMU_SIGNAL.sender();
 
-    let mut kalman_angle_roll: f32 = 0.0;
-    let mut kalman_angle_roll_uncertainty: f32 = 2.0.powi(2);
-    let mut kalman_angle_pitch: f32 = 0.0;
-    let mut kalman_angle_pitch_uncertainty: f32 = 2.0.powi(2);
-    let mut gyro_angle_yaw: f32 = 0.0;
+    // let mut kalman_angle_roll: f32 = 0.0;
+    // let mut kalman_angle_roll_uncertainty: f32 = 2.0.powi(2);
+    // let mut kalman_angle_pitch: f32 = 0.0;
+    // let mut kalman_angle_pitch_uncertainty: f32 = 2.0.powi(2);
+    // let mut gyro_angle_yaw: f32 = 0.0;
 
     // the first index is the angle prediction, and the second is the kalman uncertainty
-    let mut kalman_output: [f32; 2] = [0.0; 2];
+    // let mut kalman_output: [f32; 2] = [0.0; 2];
 
     let mut start = Instant::now();
     let mut since_last = Instant::now();
@@ -1373,7 +1344,7 @@ async fn mpu6050_processor_loop() {
             accel_data.try_into().unwrap(),
         ));
 
-        let mut should_start_gyro_calib = false;
+        // let mut should_start_gyro_calib = false;
         if Instant::now()
             .checked_duration_since(start)
             .unwrap()
@@ -1428,33 +1399,33 @@ fn correct_biases(data: &[f32; 3], biases: [f32; 3]) -> [f32; 3] {
     new_data
 }
 
-fn q_to_euler(q: [f32; 4]) -> [f32; 3] {
-    let w = q[0];
-    let x = q[1];
-    let y = q[2];
-    let z = q[3];
+// fn q_to_euler(q: [f32; 4]) -> [f32; 3] {
+//     let w = q[0];
+//     let x = q[1];
+//     let y = q[2];
+//     let z = q[3];
 
-    // Roll (x-axis rotation)
-    let sinr_cosp = 2.0 * (w * x + y * z);
-    let cosr_cosp = 1.0 - 2.0 * (x * x + y * y);
-    let roll = sinr_cosp.atan2(cosr_cosp);
+//     // Roll (x-axis rotation)
+//     let sinr_cosp = 2.0 * (w * x + y * z);
+//     let cosr_cosp = 1.0 - 2.0 * (x * x + y * y);
+//     let roll = sinr_cosp.atan2(cosr_cosp);
 
-    // Pitch (y-axis rotation)
-    let sinp = 2.0 * (w * y - z * x);
-    let pitch = if sinp.abs() >= 1.0 {
-        // Use 90° or -90° if out of range
-        PI / 2.0 * sinp.signum()
-    } else {
-        sinp.asin()
-    };
+//     // Pitch (y-axis rotation)
+//     let sinp = 2.0 * (w * y - z * x);
+//     let pitch = if sinp.abs() >= 1.0 {
+//         // Use 90° or -90° if out of range
+//         PI / 2.0 * sinp.signum()
+//     } else {
+//         sinp.asin()
+//     };
 
-    // Yaw (z-axis rotation)
-    let siny_cosp = 2.0 * (w * z + x * y);
-    let cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
-    let yaw = siny_cosp.atan2(cosy_cosp);
+//     // Yaw (z-axis rotation)
+//     let siny_cosp = 2.0 * (w * z + x * y);
+//     let cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
+//     let yaw = siny_cosp.atan2(cosy_cosp);
 
-    [roll, pitch, yaw]
-}
+//     [roll, pitch, yaw]
+// }
 
 // TODO: better understand this
 fn integrate_quaternion(new_angular_vel: &[f32; 3], q: &mut UnitQuaternion<f32>, delta: f32) {
@@ -1475,7 +1446,7 @@ fn integrate_quaternion(new_angular_vel: &[f32; 3], q: &mut UnitQuaternion<f32>,
     *q = UnitQuaternion::from_quaternion(new_q);
 }
 
-const CALIBRATION_STEPS: usize = 1000;
+// const CALIBRATION_STEPS: usize = 1000;
 
 // async fn calibrate_accel(mpu: &mut MPU6050, duration: f32) {
 //     let time_between = ((duration / (CALIBRATION_STEPS as f32)) * 1_000_000.0) as u64;
@@ -1495,56 +1466,56 @@ const CALIBRATION_STEPS: usize = 1000;
 //     info!("Accel biases are: {:?}", bias);
 // }
 
-async fn get_gyro_offsets(mpu: &mut Mpu6050<I2c<'static, I2C1, Async>>) -> [f32; 3] {
-    let mut settings: StartGyroCalibrationData = StartGyroCalibrationData::default();
-    {
-        let mut shared = SHARED.lock().await;
-        settings = shared.gyro_calibration_state.options.clone();
-    }
+// async fn get_gyro_offsets(mpu: &mut Mpu6050<I2c<'static, I2C1, Async>>) -> [f32; 3] {
+//     let settings: StartGyroCalibrationData;
+//     {
+//         let shared = SHARED.lock().await;
+//         settings = shared.gyro_calibration_state.options.clone();
+//     }
 
-    let micros_between = ((1.0 / settings.sampling_rate) * 1_000_000.0) as u64;
-    let total_samples = ((settings.sampling_time * 1_000_000.0) / micros_between as f32) as usize;
+//     let micros_between = ((1.0 / settings.sampling_rate) * 1_000_000.0) as u64;
+//     let total_samples = ((settings.sampling_time * 1_000_000.0) / micros_between as f32) as usize;
 
-    let mut data_points = Vec::<[f32; 3], 0>::new();
-    data_points.resize_default(total_samples).unwrap();
+//     let mut data_points = Vec::<[f32; 3], 0>::new();
+//     data_points.resize_default(total_samples).unwrap();
 
-    let mut start;
-    for i in 0..total_samples {
-        start = Instant::now();
-        data_points[i] = (*mpu.get_gyro().unwrap().as_mut_slice())
-            .try_into()
-            .unwrap();
-        Timer::after_micros(micros_between - (Instant::now() - start).as_micros()).await
-    }
+//     let mut start;
+//     for i in 0..total_samples {
+//         start = Instant::now();
+//         data_points[i] = (*mpu.get_gyro().unwrap().as_mut_slice())
+//             .try_into()
+//             .unwrap();
+//         Timer::after_micros(micros_between - (Instant::now() - start).as_micros()).await
+//     }
 
-    // let mut bias = calc_averages(data_points);
+//     // let mut bias = calc_averages(data_points);
 
-    // bias
-    [0.0, 0.0, 0.0]
-}
+//     // bias
+//     [0.0, 0.0, 0.0]
+// }
 
-async fn get_accel_offsets(
-    mpu: &mut Mpu6050<I2c<'static, I2C1, Async>>,
-    duration: f32,
-) -> [f32; 3] {
-    let time_between = ((duration / (CALIBRATION_STEPS as f32)) * 1_000_000.0) as u64;
+// async fn get_accel_offsets(
+//     mpu: &mut Mpu6050<I2c<'static, I2C1, Async>>,
+//     duration: f32,
+// ) -> [f32; 3] {
+//     let time_between = ((duration / (CALIBRATION_STEPS as f32)) * 1_000_000.0) as u64;
 
-    let mut data_points: [[f32; 3]; CALIBRATION_STEPS] = [[0.0; 3]; CALIBRATION_STEPS];
+//     let mut data_points: [[f32; 3]; CALIBRATION_STEPS] = [[0.0; 3]; CALIBRATION_STEPS];
 
-    let mut start;
-    for i in 0..CALIBRATION_STEPS {
-        start = Instant::now();
-        data_points[i] = (*mpu.get_acc().unwrap().as_mut_slice()).try_into().unwrap();
-        Timer::after_micros(time_between - (Instant::now() - start).as_micros()).await
-    }
+//     let mut start;
+//     for i in 0..CALIBRATION_STEPS {
+//         start = Instant::now();
+//         data_points[i] = (*mpu.get_acc().unwrap().as_mut_slice()).try_into().unwrap();
+//         Timer::after_micros(time_between - (Instant::now() - start).as_micros()).await
+//     }
 
-    let mut bias = calc_averages(data_points);
+//     let mut bias = calc_averages(data_points);
 
-    // adjust for gravity
-    bias[2] -= 1.0;
+//     // adjust for gravity
+//     bias[2] -= 1.0;
 
-    bias
-}
+//     bias
+// }
 
 fn bubble_sort<T: PartialOrd>(arr: &mut [T]) {
     let len = arr.len();
@@ -1573,15 +1544,15 @@ async fn get_base_altitude(
     data_points[data_points.len() / 2]
 }
 
-fn calc_averages(data: [[f32; 3]; CALIBRATION_STEPS]) -> [f32; 3] {
-    let mut avgs: [f32; 3] = [0.0; 3];
-    for val in data.iter() {
-        avgs[0] += val[0];
-        avgs[1] += val[1];
-        avgs[2] += val[2];
-    }
-    avgs[0] /= CALIBRATION_STEPS as f32;
-    avgs[1] /= CALIBRATION_STEPS as f32;
-    avgs[2] /= CALIBRATION_STEPS as f32;
-    return avgs;
-}
+// fn calc_averages(data: [[f32; 3]; CALIBRATION_STEPS]) -> [f32; 3] {
+//     let mut avgs: [f32; 3] = [0.0; 3];
+//     for val in data.iter() {
+//         avgs[0] += val[0];
+//         avgs[1] += val[1];
+//         avgs[2] += val[2];
+//     }
+//     avgs[0] /= CALIBRATION_STEPS as f32;
+//     avgs[1] /= CALIBRATION_STEPS as f32;
+//     avgs[2] /= CALIBRATION_STEPS as f32;
+//     return avgs;
+// }

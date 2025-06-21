@@ -2,17 +2,10 @@ use embassy_executor::Spawner;
 use embassy_rp::{
     bind_interrupts,
     peripherals::{PIN_0, PIN_1, UART0},
-    uart::{self, BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx},
-    Peripheral, Peripherals,
+    uart::{self, BufferedInterruptHandler, BufferedUart, BufferedUartTx},
 };
-use embassy_sync::{
-    blocking_mutex::raw::ThreadModeRawMutex,
-    pubsub::{PubSubChannel, Publisher},
-};
-use embassy_time::Timer;
-use embedded_io_async::{Read, Write};
+use embedded_io_async::Write;
 use heapless::Vec;
-use log::{error, info, warn};
 use static_cell::StaticCell;
 
 use crate::{
@@ -21,7 +14,6 @@ use crate::{
         elrs_rx::elrs_receive_handler,
         elrs_tx_packets::{BarometerAltitudePacket, BatteryStatePacket, GPSPacket},
     },
-    tc_println, ELRS_SIGNAL, SHARED,
 };
 pub mod elrs_rx;
 pub mod elrs_tx_packets;
@@ -70,7 +62,7 @@ impl Elrs {
         let mut uart_config = uart::Config::default();
         uart_config.baudrate = 416666;
         let uart = BufferedUart::new(uart, UartIrq, tx_pin, rx_pin, tx_buf, rx_buf, uart_config);
-        let (mut tx, rx) = uart.split();
+        let (tx, rx) = uart.split();
 
         spawner.spawn(elrs_receive_handler(rx)).unwrap();
 

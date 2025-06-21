@@ -1,4 +1,3 @@
-use embassy_rp::usb::In;
 use embassy_time::Instant;
 
 use crate::{tools::moving_average::F32MovingAverage, GRAVITY, UPDATE_LOOP_FREQUENCY};

@@ -3,15 +3,13 @@ use embassy_rp::{
     bind_interrupts,
     peripherals::{PIN_8, PIN_9, UART1},
     uart::{self, BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx},
-    Peripheral, Peripherals,
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch::Sender};
-use embassy_time::{Duration, Instant, Timer};
-use embedded_io_async::{Read, Write};
-use log::{error, info, warn};
+use embassy_time::{Instant, Timer};
+use embedded_io_async::Read;
 use static_cell::StaticCell;
 
-use crate::{tc_print, tc_println, GPS_SIGNAL, SHARED};
+use crate::{tc_println, GPS_SIGNAL};
 
 bind_interrupts!(struct UartIrq {
   UART1_IRQ => BufferedInterruptHandler<UART1>;
@@ -68,7 +66,7 @@ pub async fn init_gps(
     let mut uart_config = uart::Config::default();
     uart_config.baudrate = 115200;
     let uart = BufferedUart::new(uart, UartIrq, tx_pin, rx_pin, tx_buf, rx_buf, uart_config);
-    let (mut tx, rx) = uart.split();
+    let (tx, rx) = uart.split();
 
     spawner.spawn(reader(rx)).unwrap();
 
@@ -77,7 +75,7 @@ pub async fn init_gps(
 
 #[embassy_executor::task]
 async fn reader(mut rx: BufferedUartRx<'static, UART1>) {
-    info!("Reading...");
+    tc_println!("Reading...");
     let mut current_packet: [u8; 8192] = [0; 8192];
     let mut current_len = 0;
     let mut time_since_last = Instant::now();
@@ -91,11 +89,11 @@ async fn reader(mut rx: BufferedUartRx<'static, UART1>) {
                 current_len += n;
             }
             Ok(0) => {
-                info!("Read 0 bytes");
+                tc_println!("Read 0 bytes");
                 Timer::after_millis(100).await;
             }
             Err(e) => {
-                info!("Read error: {:?}", e);
+                tc_println!("Read error: {:?}", e);
                 Timer::after_millis(100).await;
             }
             _ => {
@@ -109,7 +107,7 @@ async fn reader(mut rx: BufferedUartRx<'static, UART1>) {
 
         // process packet
         if current_packet[0] != 0xb5 || current_packet[1] != 0x62 {
-            let mut new_starting = 0;
+            let new_starting;
             for (i, byte) in current_packet.iter().enumerate() {
                 if *byte == 0xb5 {
                     new_starting = i;
@@ -157,7 +155,7 @@ async fn handle_packet(
     let message_class = data[2];
     let message_id = data[3];
     let payload = &data[6..(len - 2)];
-    let payload_len = len - 8;
+    let _payload_len = len - 8;
 
     // tc_println!(
     //     "Received message with class {:02x?} and id {:02x?} and length {}: ",
