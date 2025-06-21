@@ -1251,7 +1251,7 @@ fn kalman_1d(
     [state.clone(), uncertainty.clone()]
 }
 
-const UPDATE_LOOP_FREQUENCY: f64 = 400.0;
+const UPDATE_LOOP_FREQUENCY: f64 = 200.0;
 #[embassy_executor::task]
 async fn mpu6050_fetcher_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
     let mut last_loop = Instant::now();
