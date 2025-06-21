@@ -55,18 +55,22 @@ const LIPO_VOLTAGE_CHARGE_LUT: [(f32, f32); 21] = [
 impl PM02D {
     pub async fn new(
         i2c: I2cDevice<'static, CriticalSectionRawMutex, i2c::I2c<'static, I2C0, Async>>,
-    ) -> Self {
+    ) -> Option<Self> {
         let mut new_pm02d = Self {
             i2c,
             total_used_capacity: 0.0,
             last_capacity_update: None,
         };
-        new_pm02d.set_shunt_cal().await;
+        let res_success = new_pm02d.set_shunt_cal().await;
 
-        new_pm02d
+        if res_success {
+            Some(new_pm02d)
+        } else {
+            None
+        }
     }
 
-    async fn set_shunt_cal(&mut self) {
+    async fn set_shunt_cal(&mut self) -> bool {
         self.i2c
             .write(
                 PM02D_ADDR,
@@ -77,7 +81,7 @@ impl PM02D {
                 ],
             )
             .await
-            .unwrap();
+            .is_ok()
     }
 
     pub async fn get_voltage(&mut self) -> f32 {

@@ -315,7 +315,7 @@ async fn main(spawner: Spawner) {
     let mut led = Output::new(p.PIN_25, Level::Low);
     led.set_high();
 
-    // let mut pm02d_interface = PM02D::new(I2cDevice::new(i2c0_bus)).await;
+    let mut pm02d_interface = PM02D::new(I2cDevice::new(i2c0_bus)).await;
     let mut gps_receiver = GPS_SIGNAL.receiver().unwrap();
 
     let mut altitude_receiver = CURRENT_ALTITUDE.receiver().unwrap();
@@ -362,18 +362,21 @@ async fn main(spawner: Spawner) {
                 .await;
         }
 
-        // let voltage = pm02d_interface.get_voltage().await;
-        // let current = pm02d_interface.get_current().await;
-        // let capacity = 5200;
-        // let (percent, _mins_remaining) = pm02d_interface.estimate_battery_charge(4, capacity).await;
-        // elrs_handle
-        //     .send_packet(ElrsTxPacket::BatteryState(BatteryStatePacket {
-        //         voltage,
-        //         current,
-        //         capacity: capacity as u32,
-        //         battery_percentage: percent,
-        //     }))
-        //     .await;
+        if pm02d_interface.is_some() {
+            let pm02d = pm02d_interface.as_mut().unwrap();
+            let voltage = pm02d.get_voltage().await;
+            let current = pm02d.get_current().await;
+            let capacity = 5200;
+            let (percent, _mins_remaining) = pm02d.estimate_battery_charge(4, capacity).await;
+            elrs_handle
+                .send_packet(ElrsTxPacket::BatteryState(BatteryStatePacket {
+                    voltage,
+                    current,
+                    capacity: capacity as u32,
+                    battery_percentage: percent,
+                }))
+                .await;
+        }
         // // tc_println!("Voltage: {}V", voltage);
         // // tc_println!("Current: {}A", current);
         // // tc_println!(
