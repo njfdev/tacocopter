@@ -69,12 +69,12 @@ pub async fn mpu6050_processor_loop() {
     let mut since_last = Instant::now();
     let mut iterations = 0;
     loop {
-        while (((1_000_000.0 * iterations as f64) / (UPDATE_LOOP_FREQUENCY)) as i64)
-            - (start.elapsed().as_micros() as i64)
-            > 0
-        {
-            yield_now().await;
-        }
+        // while (((1_000_000.0 * iterations as f64) / (UPDATE_LOOP_FREQUENCY)) as i64)
+        //     - (start.elapsed().as_micros() as i64)
+        //     > 0
+        // {
+        //     yield_now().await;
+        // }
 
         // fetch imu data from other task
         let (gyro_data, accel_data) = IMU_RAW_SIGNAL.wait().await;
