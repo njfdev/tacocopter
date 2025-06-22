@@ -13,7 +13,7 @@ use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_sync::lazy_lock::LazyLock;
 
-use crate::global::BOOT_TIME;
+use crate::global::{BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL};
 use crate::setup::peripherals::{setup_peripherals, SetupPeripherals};
 use crate::setup::tasks::{spawn_tasks, TaskPeripherals};
 use crate::setup::usb::setup_usb_interface;
@@ -76,11 +76,18 @@ async fn main(spawner: Spawner) {
         },
     );
 
+    let mut imu_process_freq = 1.0;
     loop {
         // blinking the onboard led can let us determine 2 pieces of important information without a debugger probe
         // 1. If the LED isn't blinking, the FC crashed
         // 2. If the LED blinking speed is inconsistent, the FC is overloaded
-        blink_led(&mut tc_devices.status_led, 3.0).await;
+        let new_imu_process_freq = CONTROL_LOOP_FREQUENCY_SIGNAL.try_take();
+        if new_imu_process_freq.is_some() {
+            // decrease the frequency by a factor of 50 to better see the result
+            imu_process_freq = new_imu_process_freq.unwrap() / 50.0;
+        }
+
+        blink_led(&mut tc_devices.status_led, imu_process_freq).await;
 
         // tc_println!("Voltage: {}V", voltage);
         // tc_println!("Current: {}A", current);
