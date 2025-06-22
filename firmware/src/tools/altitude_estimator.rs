@@ -1,6 +1,9 @@
 use embassy_time::Instant;
 
-use crate::{tools::moving_average::F32MovingAverage, GRAVITY, UPDATE_LOOP_FREQUENCY};
+use crate::{
+    consts::{GRAVITY, UPDATE_LOOP_FREQUENCY},
+    tools::moving_average::F32MovingAverage,
+};
 const AVERAGE_WINDOW_SIZE: usize = UPDATE_LOOP_FREQUENCY as usize / 20;
 
 // This value is determined after accel calibration, based on the quadcopter sitting flat on its landing gear

@@ -1,0 +1,54 @@
+use bmp390::Bmp390;
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
+use embassy_rp::{
+    i2c::{Async, I2c},
+    peripherals::I2C0,
+};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_time::Timer;
+use uom::si::{length::meter, pressure::kilopascal, thermodynamic_temperature::kelvin};
+
+use crate::{
+    global::{BMP390_WATCH, SHARED, TEMPERATURE},
+    tools::sorting::bubble_sort,
+};
+
+#[embassy_executor::task]
+pub async fn bmp_loop(
+    mut bmp: Bmp390<I2cDevice<'static, CriticalSectionRawMutex, I2c<'static, I2C0, Async>>>,
+) {
+    let barometer_sender = BMP390_WATCH.sender();
+    let base_altitude = get_base_altitude(&mut bmp).await;
+    loop {
+        Timer::after_millis(50).await;
+        let measurement = bmp.altitude().await.unwrap();
+        {
+            let mut shared = SHARED.lock().await;
+            shared.sensor_data.estimated_altitude = measurement.value - base_altitude;
+        }
+        let pressure = bmp.pressure().await.unwrap();
+        let temp = bmp.temperature().await.unwrap();
+        barometer_sender.send((
+            pressure.get::<kilopascal>(),
+            temp.get::<kelvin>(),
+            measurement.get::<meter>(),
+        ));
+        TEMPERATURE.signal(temp.value);
+    }
+}
+
+async fn get_base_altitude(
+    bmp: &mut Bmp390<I2cDevice<'static, CriticalSectionRawMutex, I2c<'static, I2C0, Async>>>,
+) -> f32 {
+    const AMOUNT_OF_SAMPLES: usize = 200;
+    let mut data_points: [f32; AMOUNT_OF_SAMPLES] = [0.0; AMOUNT_OF_SAMPLES];
+
+    for i in 0..AMOUNT_OF_SAMPLES {
+        data_points[i] = bmp.altitude().await.unwrap().value;
+        Timer::after_millis(10).await
+    }
+
+    bubble_sort(&mut data_points);
+
+    data_points[data_points.len() / 2]
+}

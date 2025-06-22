@@ -52,7 +52,7 @@ pub enum ElrsTxPacket {
 }
 
 impl Elrs {
-    pub fn new(tx_pin: PIN_0, rx_pin: PIN_1, uart: UART0, spawner: &Spawner) -> Self {
+    pub fn new(tx_pin: PIN_0, rx_pin: PIN_1, uart: UART0, spawner: Spawner) -> Self {
         // initialize UART connection
         static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
         let tx_buf = &mut TX_BUF.init([0; 1024])[..];
@@ -150,5 +150,27 @@ impl Elrs {
                 .as_slice(),
             )
             .await;
+    }
+
+    // if deadzone is passed as a value, then the output is scaled to -1.0 to 1.0, otherwise it is scaled from 0.0 to 1.0
+    pub fn elrs_input_to_percent(input: u16, deadzone_opt: Option<f32>) -> f32 {
+        let input_percent = ((input - 172) as f32) / 1638.0;
+
+        if deadzone_opt.is_none() {
+            return input_percent.clamp(0.0, 1.0);
+        }
+
+        let rescaled_input_percent = (input_percent - 0.5) * 2.0;
+
+        let deadzone = deadzone_opt.unwrap();
+
+        if rescaled_input_percent.abs() < deadzone * 2.0 {
+            return 0.0;
+        };
+
+        if rescaled_input_percent > 0.0 {
+            return ((rescaled_input_percent - deadzone) / (1.0 - deadzone)).clamp(0.0, 1.0);
+        }
+        return ((rescaled_input_percent + deadzone) / (1.0 - deadzone)).clamp(-1.0, 0.0);
     }
 }

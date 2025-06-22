@@ -9,7 +9,7 @@ use embassy_time::{Instant, Timer};
 use embedded_io_async::Read;
 use static_cell::StaticCell;
 
-use crate::{tc_println, GPS_SIGNAL};
+use crate::{global::GPS_SIGNAL, tc_println};
 
 bind_interrupts!(struct UartIrq {
   UART1_IRQ => BufferedInterruptHandler<UART1>;
@@ -55,8 +55,8 @@ pub async fn init_gps(
     tx_pin: PIN_8,
     rx_pin: PIN_9,
     uart: UART1,
-    spawner: &Spawner,
-) -> BufferedUartTx<'_, UART1> {
+    spawner: Spawner,
+) -> BufferedUartTx<'static, UART1> {
     // initialize UART connection
     static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
     let tx_buf = &mut TX_BUF.init([0; 1024])[..];
