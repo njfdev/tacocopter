@@ -3,6 +3,7 @@ use core::f32::consts::PI;
 use embassy_rp::{
     gpio::{Input, Level, Output, Pull},
     peripherals::{PIN_16, PIN_17},
+    Peri,
 };
 use embassy_time::{Instant, Timer};
 use micromath::F32Ext;
@@ -14,7 +15,10 @@ use crate::{
 };
 
 #[embassy_executor::task]
-pub async fn calc_ultrasonic_height_agl(trig_pin_peripheral: PIN_16, echo_pin_peripheral: PIN_17) {
+pub async fn calc_ultrasonic_height_agl(
+    trig_pin_peripheral: Peri<'static, PIN_16>,
+    echo_pin_peripheral: Peri<'static, PIN_17>,
+) {
     let mut trig_pin = Output::new(trig_pin_peripheral, Level::Low);
     let mut echo_pin = Input::new(echo_pin_peripheral, Pull::None);
 

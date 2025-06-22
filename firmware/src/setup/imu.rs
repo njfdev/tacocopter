@@ -1,6 +1,7 @@
 use embassy_rp::{
     bind_interrupts, i2c,
     peripherals::{I2C1, PIN_14, PIN_15},
+    Peri,
 };
 use embassy_time::Delay;
 use mpu6050::Mpu6050;
@@ -16,9 +17,9 @@ bind_interrupts!(struct I2C1Irqs {
 });
 
 pub async fn setup_imu(
-    i2c1: I2C1,
-    scl: PIN_15,
-    sda: PIN_14,
+    i2c1: Peri<'static, I2C1>,
+    scl: Peri<'static, PIN_15>,
+    sda: Peri<'static, PIN_14>,
 ) -> Mpu6050<i2c::I2c<'static, I2C1, i2c::Async>> {
     let i2c = i2c::I2c::new_async(i2c1, scl, sda, I2C1Irqs, i2c::Config::default());
     let mut mpu = Mpu6050::new(i2c);

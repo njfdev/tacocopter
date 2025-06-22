@@ -8,7 +8,7 @@ use crate::{
     drivers::elrs::Elrs,
     global::{
         ARMED_WATCH, CONTROL_LOOP_FREQUENCY_SIGNAL, CONTROL_LOOP_VALUES, CURRENT_ALTITUDE,
-        ELRS_SIGNAL, IMU_SIGNAL, SHARED,
+        ELRS_SIGNAL, IMU_SIGNAL,
     },
     tools::yielding_timer::YieldingTimer,
 };

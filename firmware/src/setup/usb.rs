@@ -2,6 +2,7 @@ use embassy_rp::{
     bind_interrupts,
     peripherals::USB,
     usb::{Driver, Endpoint, In, InterruptHandler, Out},
+    Peri,
 };
 use embassy_usb::{Builder, UsbDevice};
 use tc_interface::{TC_PID, TC_VID};
@@ -11,7 +12,7 @@ bind_interrupts!(struct UsbIrq {
 });
 
 pub fn setup_usb_interface(
-    usb_peripheral: USB,
+    usb_peripheral: Peri<'static, USB>,
 ) -> (
     UsbDevice<'static, Driver<'static, USB>>,
     Endpoint<'static, USB, In>,

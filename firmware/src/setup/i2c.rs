@@ -2,6 +2,7 @@ use embassy_rp::{
     bind_interrupts,
     i2c::{self, Async, I2c},
     peripherals::{I2C0, PIN_20, PIN_21},
+    Peri,
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use static_cell::StaticCell;
@@ -12,7 +13,11 @@ bind_interrupts!(struct I2C0Irqs {
 
 pub type I2c0BusType = &'static Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, Async>>;
 
-pub fn setup_i2c_bus(i2c_interface: I2C0, scl: PIN_21, sda: PIN_20) -> I2c0BusType {
+pub fn setup_i2c_bus(
+    i2c_interface: Peri<'static, I2C0>,
+    scl: Peri<'static, PIN_21>,
+    sda: Peri<'static, PIN_20>,
+) -> I2c0BusType {
     static I2C0_BUS: StaticCell<Mutex<CriticalSectionRawMutex, I2c<'_, I2C0, Async>>> =
         StaticCell::new();
     let i2c0: I2c<'static, I2C0, Async> =

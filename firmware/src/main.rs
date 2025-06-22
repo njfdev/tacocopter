@@ -11,9 +11,11 @@ pub mod tools;
 
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
+use embassy_rp::config::Config;
 use embassy_sync::lazy_lock::LazyLock;
 
-use crate::global::{BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL};
+use crate::global::{BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL};
+use crate::setup::clock::setup_clocks;
 use crate::setup::peripherals::{setup_peripherals, SetupPeripherals};
 use crate::setup::tasks::{spawn_tasks, TaskPeripherals};
 use crate::setup::usb::setup_usb_interface;
@@ -27,10 +29,11 @@ pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    let clock_config = setup_clocks(Some(300_000_000));
+    let p = embassy_rp::init(Config::new(clock_config));
+
     // this initializes BOOT_TIME with the current clock time immediately
     LazyLock::get(&BOOT_TIME);
-
-    let p = embassy_rp::init(Default::default());
 
     let mut tc_devices = setup_peripherals(
         spawner.clone(),

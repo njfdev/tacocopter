@@ -3,6 +3,7 @@ use embassy_rp::{
     bind_interrupts,
     peripherals::{PIN_8, PIN_9, UART1},
     uart::{self, BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx},
+    Peri,
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch::Sender};
 use embassy_time::Instant;
@@ -52,11 +53,11 @@ pub struct GPSPayload {
 }
 
 pub async fn init_gps(
-    tx_pin: PIN_8,
-    rx_pin: PIN_9,
-    uart: UART1,
+    tx_pin: Peri<'static, PIN_8>,
+    rx_pin: Peri<'static, PIN_9>,
+    uart: Peri<'static, UART1>,
     spawner: Spawner,
-) -> BufferedUartTx<'static, UART1> {
+) -> BufferedUartTx {
     // initialize UART connection
     static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
     let tx_buf = &mut TX_BUF.init([0; 1024])[..];
@@ -65,7 +66,7 @@ pub async fn init_gps(
 
     let mut uart_config = uart::Config::default();
     uart_config.baudrate = 115200;
-    let uart = BufferedUart::new(uart, UartIrq, tx_pin, rx_pin, tx_buf, rx_buf, uart_config);
+    let uart = BufferedUart::new(uart, tx_pin, rx_pin, UartIrq, tx_buf, rx_buf, uart_config);
     let (tx, rx) = uart.split();
 
     spawner.spawn(reader(rx)).unwrap();
@@ -74,7 +75,7 @@ pub async fn init_gps(
 }
 
 #[embassy_executor::task]
-async fn reader(mut rx: BufferedUartRx<'static, UART1>) {
+async fn reader(mut rx: BufferedUartRx) {
     tc_println!("Reading...");
     let mut current_packet: [u8; 8192] = [0; 8192];
     let mut current_len = 0;

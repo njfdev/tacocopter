@@ -3,6 +3,7 @@ use embassy_rp::{
     bind_interrupts,
     peripherals::{PIN_0, PIN_1, UART0},
     uart::{self, BufferedInterruptHandler, BufferedUart, BufferedUartTx},
+    Peri,
 };
 use embedded_io_async::Write;
 use heapless::Vec;
@@ -42,7 +43,7 @@ const CRC8TAB: [u8; 256] = [
 ];
 
 pub struct Elrs {
-    uart_tx: BufferedUartTx<'static, UART0>,
+    uart_tx: BufferedUartTx,
 }
 
 pub enum ElrsTxPacket {
@@ -52,7 +53,12 @@ pub enum ElrsTxPacket {
 }
 
 impl Elrs {
-    pub fn new(tx_pin: PIN_0, rx_pin: PIN_1, uart: UART0, spawner: Spawner) -> Self {
+    pub fn new(
+        tx_pin: Peri<'static, PIN_0>,
+        rx_pin: Peri<'static, PIN_1>,
+        uart: Peri<'static, UART0>,
+        spawner: Spawner,
+    ) -> Self {
         // initialize UART connection
         static TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
         let tx_buf = &mut TX_BUF.init([0; 1024])[..];
@@ -61,7 +67,7 @@ impl Elrs {
 
         let mut uart_config = uart::Config::default();
         uart_config.baudrate = 416666;
-        let uart = BufferedUart::new(uart, UartIrq, tx_pin, rx_pin, tx_buf, rx_buf, uart_config);
+        let uart = BufferedUart::new(uart, tx_pin, rx_pin, UartIrq, tx_buf, rx_buf, uart_config);
         let (tx, rx) = uart.split();
 
         spawner.spawn(elrs_receive_handler(rx)).unwrap();

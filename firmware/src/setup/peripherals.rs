@@ -15,6 +15,7 @@ use embassy_rp::{
         PIN_8, PIN_9, PIO0, UART0, UART1,
     },
     uart::BufferedUartTx,
+    Peri,
 };
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use mpu6050::Mpu6050;
@@ -24,30 +25,30 @@ bind_interrupts!(struct Pio0Irqs {
 });
 
 pub struct SetupPeripherals {
-    pub status_led: AnyPin,
-    pub elrs_tx: PIN_0,
-    pub elrs_rx: PIN_1,
-    pub elrs_uart: UART0,
-    pub gps_tx: PIN_8,
-    pub gps_rx: PIN_9,
-    pub gps_uart: UART1,
-    pub i2c0_interface: I2C0,
-    pub i2c0_scl: PIN_21,
-    pub i2c0_sda: PIN_20,
-    pub mpu_i2c1_interface: I2C1,
-    pub mpu_scl: PIN_15,
-    pub mpu_sda: PIN_14,
-    pub dshot_pio: PIO0,
-    pub dshot_mtr_1: PIN_2,
-    pub dshot_mtr_2: PIN_3,
-    pub dshot_mtr_3: PIN_4,
-    pub dshot_mtr_4: PIN_5,
+    pub status_led: Peri<'static, AnyPin>,
+    pub elrs_tx: Peri<'static, PIN_0>,
+    pub elrs_rx: Peri<'static, PIN_1>,
+    pub elrs_uart: Peri<'static, UART0>,
+    pub gps_tx: Peri<'static, PIN_8>,
+    pub gps_rx: Peri<'static, PIN_9>,
+    pub gps_uart: Peri<'static, UART1>,
+    pub i2c0_interface: Peri<'static, I2C0>,
+    pub i2c0_scl: Peri<'static, PIN_21>,
+    pub i2c0_sda: Peri<'static, PIN_20>,
+    pub mpu_i2c1_interface: Peri<'static, I2C1>,
+    pub mpu_scl: Peri<'static, PIN_15>,
+    pub mpu_sda: Peri<'static, PIN_14>,
+    pub dshot_pio: Peri<'static, PIO0>,
+    pub dshot_mtr_1: Peri<'static, PIN_2>,
+    pub dshot_mtr_2: Peri<'static, PIN_3>,
+    pub dshot_mtr_3: Peri<'static, PIN_4>,
+    pub dshot_mtr_4: Peri<'static, PIN_5>,
 }
 
 pub struct TcDevices {
     pub mpu: Mpu6050<I2c<'static, I2C1, Async>>,
     pub bmp: Bmp390<I2cDevice<'static, CriticalSectionRawMutex, I2c<'static, I2C0, Async>>>,
-    pub gps: BufferedUartTx<'static, UART1>,
+    pub gps: BufferedUartTx,
     pub elrs: Elrs,
     pub dshot: DshotPio<'static, 4, PIO0>,
     pub pm02d_interface: Option<PM02D>,

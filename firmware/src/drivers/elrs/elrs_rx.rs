@@ -3,11 +3,11 @@ use crate::{
     tc_println,
     tools::yielding_timer::YieldingTimer,
 };
-use embassy_rp::{peripherals::UART0, uart::BufferedUartRx};
+use embassy_rp::uart::BufferedUartRx;
 use embedded_io_async::Read;
 
 #[embassy_executor::task]
-pub async fn elrs_receive_handler(mut rx: BufferedUartRx<'static, UART0>) {
+pub async fn elrs_receive_handler(mut rx: BufferedUartRx) {
     let mut current_packet: [u8; 1024] = [0; 1024];
     let mut current_len = 0;
     loop {
