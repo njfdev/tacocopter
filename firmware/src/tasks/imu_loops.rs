@@ -9,7 +9,10 @@ use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 
 use crate::{
     consts::{ACCEL_BIASES, GYRO_BIASES, UPDATE_LOOP_FREQUENCY, USB_LOGGER_RATE},
-    global::{IMU_FETCH_FREQUENCY_SIGNAL, IMU_RAW_SIGNAL, IMU_SIGNAL, SHARED},
+    global::{
+        IMU_FETCH_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL, IMU_RAW_SIGNAL, IMU_SIGNAL,
+        SHARED,
+    },
     tools::{kalman::KalmanFilterQuat, yielding_timer::YieldingTimer},
 };
 
@@ -131,19 +134,21 @@ pub async fn mpu6050_processor_loop() {
             >= (1000.0 / USB_LOGGER_RATE) as u64
         {
             start = Instant::now();
-            let mut shared = SHARED.lock().await;
-            // shared.imu_sensor_data.gyroscope = gyro_data;
-            // shared.imu_sensor_data.accelerometer = accel_data;
-            shared.imu_sensor_data.accel_orientation =
-                UnitQuaternion::from_euler_angles(accel_angles[0], accel_angles[1], 0.0)
-                    .as_vector()
-                    .as_slice()
-                    .try_into()
-                    .unwrap();
-            shared.imu_sensor_data.gyro_orientation = gyro_angles;
-            shared.imu_sensor_data.orientation = orientation_quaternion;
-            shared.state_data.imu_process_rate = 1.0 / delta;
-            shared.calibration_data.accel_calibration = accel_data;
+            IMU_PROCESSOR_FREQUENCY_SIGNAL.signal(1.0 / delta);
+            {
+                let mut shared = SHARED.lock().await;
+                // shared.imu_sensor_data.gyroscope = gyro_data;
+                // shared.imu_sensor_data.accelerometer = accel_data;
+                shared.imu_sensor_data.accel_orientation =
+                    UnitQuaternion::from_euler_angles(accel_angles[0], accel_angles[1], 0.0)
+                        .as_vector()
+                        .as_slice()
+                        .try_into()
+                        .unwrap();
+                shared.imu_sensor_data.gyro_orientation = gyro_angles;
+                shared.imu_sensor_data.orientation = orientation_quaternion;
+                shared.calibration_data.accel_calibration = accel_data;
+            }
             // iterations = 0;
             //info!("Estimated rotation: {:?}", rotation);
 

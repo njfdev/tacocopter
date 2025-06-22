@@ -6,7 +6,10 @@ use pid::Pid;
 use crate::{
     consts::UPDATE_LOOP_FREQUENCY,
     drivers::elrs::Elrs,
-    global::{ARMED_WATCH, CONTROL_LOOP_VALUES, CURRENT_ALTITUDE, ELRS_SIGNAL, IMU_SIGNAL, SHARED},
+    global::{
+        ARMED_WATCH, CONTROL_LOOP_FREQUENCY_SIGNAL, CONTROL_LOOP_VALUES, CURRENT_ALTITUDE,
+        ELRS_SIGNAL, IMU_SIGNAL, SHARED,
+    },
     tools::yielding_timer::YieldingTimer,
 };
 
@@ -215,10 +218,6 @@ pub async fn control_loop() {
             armed = false;
         }
         CONTROL_LOOP_VALUES.signal((armed, throttle_input, [t1, t2, t3, t4]));
-
-        {
-            let mut shared = SHARED.lock().await;
-            shared.state_data.control_loop_update_rate = 1.0 / dt;
-        }
+        CONTROL_LOOP_FREQUENCY_SIGNAL.signal(1.0 / dt);
     }
 }

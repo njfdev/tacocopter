@@ -53,6 +53,10 @@ pub static TEMPERATURE: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 
 // frequency signals (for usb logging)
 pub static IMU_FETCH_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
+pub static IMU_PROCESSOR_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
+pub static CONTROL_LOOP_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
+pub static POSITION_HOLD_LOOP_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> =
+    Signal::new();
 pub static IMU_PROCESSOR_SIGNAL: Signal<CriticalSectionRawMutex, (f32, ImuSensorData)> =
     Signal::new();
 

@@ -17,7 +17,10 @@ use tc_interface::{
 
 use crate::{
     consts::USB_LOGGER_RATE,
-    global::{BOOT_TIME, IMU_FETCH_FREQUENCY_SIGNAL, LOG_CHANNEL, SHARED},
+    global::{
+        BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_FETCH_FREQUENCY_SIGNAL,
+        IMU_PROCESSOR_FREQUENCY_SIGNAL, LOG_CHANNEL, POSITION_HOLD_LOOP_FREQUENCY_SIGNAL, SHARED,
+    },
     tools::yielding_timer::YieldingTimer,
 };
 
@@ -50,6 +53,18 @@ pub async fn usb_updater(
             let imu_fetch_freq = IMU_FETCH_FREQUENCY_SIGNAL.try_take();
             if imu_fetch_freq.is_some() {
                 shared.state_data.imu_fetch_rate = imu_fetch_freq.unwrap();
+            }
+            let imu_process_freq = IMU_PROCESSOR_FREQUENCY_SIGNAL.try_take();
+            if imu_process_freq.is_some() {
+                shared.state_data.imu_process_rate = imu_process_freq.unwrap();
+            }
+            let control_loop_freq = CONTROL_LOOP_FREQUENCY_SIGNAL.try_take();
+            if control_loop_freq.is_some() {
+                shared.state_data.control_loop_update_rate = control_loop_freq.unwrap();
+            }
+            let position_hold_loop_freq = POSITION_HOLD_LOOP_FREQUENCY_SIGNAL.try_take();
+            if position_hold_loop_freq.is_some() {
+                shared.state_data.position_hold_loop_update_rate = position_hold_loop_freq.unwrap();
             }
             state_data = shared.state_data.clone();
             imu_sensor_data = shared.imu_sensor_data.clone();
