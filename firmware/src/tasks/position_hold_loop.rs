@@ -1,7 +1,6 @@
 use core::f32::NAN;
 
-use embassy_futures::yield_now;
-use embassy_time::{Instant, Timer};
+use embassy_time::Instant;
 use micromath::F32Ext;
 
 use crate::{
@@ -10,7 +9,10 @@ use crate::{
         ARMED_WATCH, BMP390_WATCH, CURRENT_ALTITUDE, GPS_SIGNAL, IMU_SIGNAL, SHARED,
         ULTRASONIC_WATCH,
     },
-    tools::altitude_estimator::{AltitudeEstimator, ACCEL_VERTICAL_BIAS},
+    tools::{
+        altitude_estimator::{AltitudeEstimator, ACCEL_VERTICAL_BIAS},
+        yielding_timer::YieldingTimer,
+    },
 };
 
 #[embassy_executor::task]
@@ -60,8 +62,14 @@ pub async fn position_hold_loop() {
     let mut is_armed = false;
 
     loop {
+        let new_since_last = YieldingTimer::after_micros(
+            ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) as u64)
+                .checked_sub(last_update.elapsed().as_micros())
+                .unwrap_or_default(),
+        )
+        .await;
         let dt = (last_update.elapsed().as_micros() as f32) / 1_000_000.0;
-        last_update = Instant::now();
+        last_update = new_since_last;
 
         let armed_recv = armed_receiver.try_changed();
         if armed_recv.is_some() {
@@ -194,12 +202,6 @@ pub async fn position_hold_loop() {
         {
             let mut shared = SHARED.lock().await;
             shared.state_data.position_hold_loop_update_rate = 1.0 / dt;
-        }
-
-        while ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) - last_update.elapsed().as_micros() as f64)
-            > 0.0
-        {
-            yield_now().await;
         }
     }
 }

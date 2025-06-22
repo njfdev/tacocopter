@@ -10,6 +10,7 @@ use micromath::F32Ext;
 use crate::{
     consts::ULTRASONIC_DISTANCE_TO_CENTER_PITCH,
     global::{IMU_SIGNAL, ULTRASONIC_WATCH},
+    tools::yielding_timer::YieldingTimer,
 };
 
 #[embassy_executor::task]
@@ -27,9 +28,9 @@ pub async fn calc_ultrasonic_height_agl(trig_pin_peripheral: PIN_16, echo_pin_pe
     loop {
         // println!("Temp: {:?}", (TEMPERATURE.try_take()));
         trig_pin.set_low();
-        Timer::after_micros(2).await;
+        YieldingTimer::after_micros(2).await;
         trig_pin.set_high();
-        Timer::after_micros(8).await;
+        YieldingTimer::after_micros(8).await;
         trig_pin.set_low();
 
         echo_pin.wait_for_rising_edge().await;
@@ -66,6 +67,6 @@ pub async fn calc_ultrasonic_height_agl(trig_pin_peripheral: PIN_16, echo_pin_pe
         //     shared.sensor_data.ultrasonic_dist = distance;
         // }
         // tc_println!("Distance ({}us): {:.2?} cm", time, distance);
-        Timer::after_millis(1000 / 30).await;
+        YieldingTimer::after_millis(1000 / 30).await;
     }
 }

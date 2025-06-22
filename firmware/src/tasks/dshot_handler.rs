@@ -1,9 +1,10 @@
 use dshot_pio::{dshot_embassy_rp::DshotPio, DshotPioTrait};
-use embassy_futures::yield_now;
 use embassy_rp::peripherals::PIO0;
-use embassy_time::{Instant, Timer};
+use embassy_time::Instant;
 
-use crate::{consts::DSHOT_UPDATE_FREQ, global::CONTROL_LOOP_VALUES};
+use crate::{
+    consts::DSHOT_UPDATE_FREQ, global::CONTROL_LOOP_VALUES, tools::yielding_timer::YieldingTimer,
+};
 
 const MAX_THROTTLE_PERCENT: f32 = 1.0;
 #[embassy_executor::task]
@@ -15,6 +16,13 @@ pub async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
     let mut since_last = Instant::now();
 
     loop {
+        since_last = YieldingTimer::after_micros(
+            ((1_000_000.0 / DSHOT_UPDATE_FREQ) as u64)
+                .checked_sub(since_last.elapsed().as_micros())
+                .unwrap_or_default(),
+        )
+        .await;
+
         let control_loop_recv = CONTROL_LOOP_VALUES.try_take();
         if control_loop_recv.is_some() {
             // && since_last_throttle_update.elapsed().as_micros() > 50000 {
@@ -49,10 +57,5 @@ pub async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
             }
             dshot.command(dshot_msgs);
         }
-
-        while since_last.elapsed().as_micros() < (1_000_000.0 / DSHOT_UPDATE_FREQ) as u64 {
-            yield_now().await;
-        }
-        since_last = Instant::now();
     }
 }

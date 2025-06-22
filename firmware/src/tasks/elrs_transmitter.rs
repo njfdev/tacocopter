@@ -1,4 +1,3 @@
-use embassy_futures::yield_now;
 use embassy_time::Instant;
 
 use crate::{
@@ -11,6 +10,7 @@ use crate::{
         pm02d::PM02D,
     },
     global::{CURRENT_ALTITUDE, GPS_SIGNAL},
+    tools::yielding_timer::YieldingTimer,
 };
 
 #[embassy_executor::task]
@@ -21,10 +21,12 @@ pub async fn elrs_transmitter(mut elrs_handle: Elrs, mut pm02d_interface: Option
     let mut since_last = Instant::now();
 
     loop {
-        while since_last.elapsed().as_micros() < (1_000_000.0 / ELRS_TX_UPDATE_FREQ) as u64 {
-            yield_now().await;
-        }
-        since_last = Instant::now();
+        since_last = YieldingTimer::after_micros(
+            ((1_000_000.0 / ELRS_TX_UPDATE_FREQ) as u64)
+                .checked_sub(since_last.elapsed().as_micros())
+                .unwrap_or_default(),
+        )
+        .await;
 
         let altitude_recv = altitude_receiver.try_changed();
         if altitude_recv.is_some() {

@@ -1,6 +1,5 @@
 use bmp390::Bmp390;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
-use embassy_futures::yield_now;
 use embassy_rp::{
     i2c::{Async, I2c},
     peripherals::I2C0,
@@ -12,7 +11,7 @@ use uom::si::{length::meter, pressure::kilopascal, thermodynamic_temperature::ke
 use crate::{
     consts::BMP_UPDATE_FREQ,
     global::{BMP390_WATCH, SHARED, TEMPERATURE},
-    tools::sorting::bubble_sort,
+    tools::{sorting::bubble_sort, yielding_timer::YieldingTimer},
 };
 
 #[embassy_executor::task]
@@ -21,11 +20,14 @@ pub async fn bmp_loop(
 ) {
     let barometer_sender = BMP390_WATCH.sender();
     let base_altitude = get_base_altitude(&mut bmp).await;
-    let since_last = Instant::now();
+    let mut since_last = Instant::now();
     loop {
-        while since_last.elapsed().as_micros() < (1_000_000.0 / BMP_UPDATE_FREQ) as u64 {
-            yield_now().await;
-        }
+        since_last = YieldingTimer::after_micros(
+            ((1_000_000.0 / BMP_UPDATE_FREQ) as u64)
+                .checked_sub(since_last.elapsed().as_micros())
+                .unwrap_or_default(),
+        )
+        .await;
         let measurement = bmp.altitude().await.unwrap();
         {
             let mut shared = SHARED.lock().await;

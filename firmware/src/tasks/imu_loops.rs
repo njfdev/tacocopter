@@ -1,9 +1,8 @@
-use embassy_futures::yield_now;
 use embassy_rp::{
     i2c::{Async, I2c},
     peripherals::I2C1,
 };
-use embassy_time::{Instant, Timer};
+use embassy_time::Instant;
 use micromath::F32Ext;
 use mpu6050::Mpu6050;
 use nalgebra::{Quaternion, UnitQuaternion, Vector3};
@@ -11,7 +10,7 @@ use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 use crate::{
     consts::{ACCEL_BIASES, GYRO_BIASES, UPDATE_LOOP_FREQUENCY, USB_LOGGER_RATE},
     global::{IMU_FETCH_FREQUENCY_SIGNAL, IMU_RAW_SIGNAL, IMU_SIGNAL, SHARED},
-    tools::kalman::KalmanFilterQuat,
+    tools::{kalman::KalmanFilterQuat, yielding_timer::YieldingTimer},
 };
 
 #[embassy_executor::task]
@@ -19,14 +18,14 @@ pub async fn mpu6050_fetcher_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
     let mut last_loop = Instant::now();
     let mut last_log = Instant::now();
     loop {
-        while ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) as u64)
-            .checked_sub(last_loop.elapsed().as_micros())
-            .is_some()
-        {
-            yield_now().await
-        }
+        let new_since_last = YieldingTimer::after_micros(
+            ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) as u64)
+                .checked_sub(last_loop.elapsed().as_micros())
+                .unwrap_or_default(),
+        )
+        .await;
         let frequency = 1_000_000.0 / last_loop.elapsed().as_micros() as f32;
-        last_loop = Instant::now();
+        last_loop = new_since_last;
 
         let gyro_data: [f32; 3] = correct_biases(
             mpu.get_gyro().unwrap().as_slice().try_into().unwrap(),
@@ -67,7 +66,7 @@ pub async fn mpu6050_processor_loop() {
 
     let mut start = Instant::now();
     let mut since_last = Instant::now();
-    let mut iterations = 0;
+    // let mut iterations = 0;
     loop {
         // while (((1_000_000.0 * iterations as f64) / (UPDATE_LOOP_FREQUENCY)) as i64)
         //     - (start.elapsed().as_micros() as i64)
@@ -145,7 +144,7 @@ pub async fn mpu6050_processor_loop() {
             shared.imu_sensor_data.orientation = orientation_quaternion;
             shared.state_data.imu_process_rate = 1.0 / delta;
             shared.calibration_data.accel_calibration = accel_data;
-            iterations = 0;
+            // iterations = 0;
             //info!("Estimated rotation: {:?}", rotation);
 
             // should_start_gyro_calib = !shared.gyro_calibration_state.is_finished;
@@ -158,7 +157,7 @@ pub async fn mpu6050_processor_loop() {
         //     start = Instant::now();
         // }
 
-        iterations += 1;
+        // iterations += 1;
     }
 }
 

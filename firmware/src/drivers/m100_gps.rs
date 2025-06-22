@@ -5,11 +5,11 @@ use embassy_rp::{
     uart::{self, BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx},
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch::Sender};
-use embassy_time::{Instant, Timer};
+use embassy_time::Instant;
 use embedded_io_async::Read;
 use static_cell::StaticCell;
 
-use crate::{global::GPS_SIGNAL, tc_println};
+use crate::{global::GPS_SIGNAL, tc_println, tools::yielding_timer::YieldingTimer};
 
 bind_interrupts!(struct UartIrq {
   UART1_IRQ => BufferedInterruptHandler<UART1>;
@@ -90,14 +90,14 @@ async fn reader(mut rx: BufferedUartRx<'static, UART1>) {
             }
             Ok(0) => {
                 tc_println!("Read 0 bytes");
-                Timer::after_millis(100).await;
+                YieldingTimer::after_millis(100).await;
             }
             Err(e) => {
                 tc_println!("Read error: {:?}", e);
-                Timer::after_millis(100).await;
+                YieldingTimer::after_millis(100).await;
             }
             _ => {
-                Timer::after_millis(100).await;
+                YieldingTimer::after_millis(100).await;
             }
         }
 

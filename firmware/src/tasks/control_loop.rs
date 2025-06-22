@@ -1,13 +1,13 @@
 use core::f32::consts::PI;
 
-use embassy_futures::yield_now;
-use embassy_time::{Instant, Timer};
+use embassy_time::Instant;
 use pid::Pid;
 
 use crate::{
     consts::UPDATE_LOOP_FREQUENCY,
     drivers::elrs::Elrs,
     global::{ARMED_WATCH, CONTROL_LOOP_VALUES, CURRENT_ALTITUDE, ELRS_SIGNAL, IMU_SIGNAL, SHARED},
+    tools::yielding_timer::YieldingTimer,
 };
 
 /*
@@ -85,14 +85,14 @@ pub async fn control_loop() {
     let mut should_use_position_hold = false;
 
     loop {
-        while (1_000_000 / (UPDATE_LOOP_FREQUENCY as u64))
-            .checked_sub(since_last_loop.elapsed().as_micros())
-            .is_some()
-        {
-            yield_now().await;
-        }
+        let new_since_last_loop = YieldingTimer::after_micros(
+            (1_000_000 / (UPDATE_LOOP_FREQUENCY as u64))
+                .checked_sub(since_last_loop.elapsed().as_micros())
+                .unwrap_or_default(),
+        )
+        .await;
         let dt = (since_last_loop.elapsed().as_micros() as f32) / 1_000_000.0;
-        since_last_loop = Instant::now();
+        since_last_loop = new_since_last_loop;
 
         let altitude_recv = altitude_receiver.try_changed();
         if altitude_recv.is_some()

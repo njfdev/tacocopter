@@ -1,9 +1,6 @@
 use core::str::FromStr;
 
-use embassy_futures::{
-    select::{select, Either},
-    yield_now,
-};
+use embassy_futures::select::{select, Either};
 use embassy_rp::{
     peripherals::USB,
     usb::{Driver, Endpoint, In, Out},
@@ -21,6 +18,7 @@ use tc_interface::{
 use crate::{
     consts::USB_LOGGER_RATE,
     global::{BOOT_TIME, IMU_FETCH_FREQUENCY_SIGNAL, LOG_CHANNEL, SHARED},
+    tools::yielding_timer::YieldingTimer,
 };
 
 #[embassy_executor::task]
@@ -101,44 +99,51 @@ pub async fn usb_updater(
         postcard::to_slice(&TCMessage::PacketIndicator(false), &mut buffer).unwrap();
         usb_send.write(&buffer).await.unwrap();
 
-        while since_last.elapsed().as_micros() < time_between.as_micros() {
-            match select(usb_read.read(&mut buffer), yield_now()).await {
-                Either::First(Ok(n)) => {
-                    let msg = from_bytes::<ConfiguratorMessage>(&buffer[..n]).unwrap();
+        match select(
+            usb_read.read(&mut buffer),
+            YieldingTimer::after_micros(
+                ((1_000_000.0 / USB_LOGGER_RATE) as u64)
+                    .checked_sub(since_last.elapsed().as_micros())
+                    .unwrap_or_default(),
+            ),
+        )
+        .await
+        {
+            Either::First(Ok(n)) => {
+                let msg = from_bytes::<ConfiguratorMessage>(&buffer[..n]).unwrap();
 
-                    match msg {
-                        ConfiguratorMessage::StartGyroCalibration(data) => {
+                match msg {
+                    ConfiguratorMessage::StartGyroCalibration(data) => {
+                        {
+                            let mut shared = SHARED.lock().await;
+                            shared.gyro_calibration_state.options = data;
+                            shared.gyro_calibration_state.is_finished = false;
+                        }
+                        loop {
+                            Timer::after(time_between).await;
+
+                            let calib_state;
                             {
-                                let mut shared = SHARED.lock().await;
-                                shared.gyro_calibration_state.options = data;
-                                shared.gyro_calibration_state.is_finished = false;
+                                let shared = SHARED.lock().await;
+                                calib_state = shared.gyro_calibration_state.clone();
                             }
-                            loop {
-                                Timer::after(time_between).await;
 
-                                let calib_state;
-                                {
-                                    let shared = SHARED.lock().await;
-                                    calib_state = shared.gyro_calibration_state.clone();
-                                }
+                            // indicate end of data
+                            postcard::to_slice(
+                                &TCMessage::GyroCalibrationProgress(calib_state.clone()),
+                                &mut buffer,
+                            )
+                            .unwrap();
+                            usb_send.write(&buffer).await.unwrap();
 
-                                // indicate end of data
-                                postcard::to_slice(
-                                    &TCMessage::GyroCalibrationProgress(calib_state.clone()),
-                                    &mut buffer,
-                                )
-                                .unwrap();
-                                usb_send.write(&buffer).await.unwrap();
-
-                                if calib_state.is_finished == true {
-                                    break;
-                                }
+                            if calib_state.is_finished == true {
+                                break;
                             }
                         }
                     }
                 }
-                _ => {} // either failed or timeout, so continue normally
             }
+            _ => {} // either failed or timeout, so continue normally
         }
         since_last = Instant::now();
     }

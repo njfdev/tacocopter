@@ -1,9 +1,9 @@
 use crate::{
     global::{ELRS_SIGNAL, SHARED},
     tc_println,
+    tools::yielding_timer::YieldingTimer,
 };
 use embassy_rp::{peripherals::UART0, uart::BufferedUartRx};
-use embassy_time::Timer;
 use embedded_io_async::Read;
 
 #[embassy_executor::task]
@@ -20,14 +20,14 @@ pub async fn elrs_receive_handler(mut rx: BufferedUartRx<'static, UART0>) {
             }
             Ok(0) => {
                 // tc_println!("Read 0 bytes");
-                Timer::after_millis(100).await;
+                YieldingTimer::after_millis(100).await;
             }
             Err(_e) => {
                 // tc_println!("Read error: {:?}", e);
-                Timer::after_millis(100).await;
+                YieldingTimer::after_millis(100).await;
             }
             _ => {
-                Timer::after_millis(100).await;
+                YieldingTimer::after_millis(100).await;
             }
         }
         // tc_println!(
