@@ -1,3 +1,4 @@
+use embassy_futures::yield_now;
 use embassy_rp::{
     i2c::{Async, I2c},
     peripherals::I2C1,
@@ -9,13 +10,14 @@ use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 
 use crate::{
     consts::{ACCEL_BIASES, GYRO_BIASES, UPDATE_LOOP_FREQUENCY, USB_LOGGER_RATE},
-    global::{IMU_RAW_SIGNAL, IMU_SIGNAL, SHARED},
+    global::{IMU_FETCH_FREQUENCY_SIGNAL, IMU_RAW_SIGNAL, IMU_SIGNAL, SHARED},
     tools::kalman::KalmanFilterQuat,
 };
 
 #[embassy_executor::task]
 pub async fn mpu6050_fetcher_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
     let mut last_loop = Instant::now();
+    let mut last_log = Instant::now();
     loop {
         let time_to_wait = ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) as u64)
             .checked_sub(last_loop.elapsed().as_micros());
@@ -39,9 +41,9 @@ pub async fn mpu6050_fetcher_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
 
         IMU_RAW_SIGNAL.signal((gyro_data, accel_data));
 
-        {
-            let mut shared = SHARED.lock().await;
-            shared.state_data.imu_fetch_rate = frequency;
+        if last_log.elapsed().as_millis() >= (1000.0 / USB_LOGGER_RATE) as u64 {
+            last_log = Instant::now();
+            IMU_FETCH_FREQUENCY_SIGNAL.signal(frequency);
         }
     }
 }

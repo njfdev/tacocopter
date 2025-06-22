@@ -46,33 +46,46 @@ pub struct TaskPeripherals {
 }
 
 pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
-    spawner.spawn(bmp_loop(p.bmp)).unwrap();
+    // This task actually handles the USB traffic, and is I/O and timing heavy (runs on core 0)
     spawner.spawn(usb_task(p.usb)).unwrap();
 
-    spawner
-        .spawn(usb_updater(p.usb_bulk_in, p.usb_bulk_out))
-        .unwrap();
-    let _ = spawner.spawn(dshot_handler(p.dshot));
+    /* These are the remaining core 0 tasks
+    NOTE: Only processing loops are handled here because from testing, any
+    other I/O heavy tasks on the same core as the USB handling task suffers
+    GREATLY. Therefore, any non-I/O tasks should be on core 0 to give core 1
+    room for more I/O tasks.
+    */
+    let _ = spawner.spawn(control_loop());
+    let _ = spawner.spawn(position_hold_loop());
+    spawner.spawn(mpu6050_processor_loop()).unwrap();
 
-    spawner.spawn(mpu6050_fetcher_loop(p.mpu)).unwrap();
-    spawner
-        .spawn(elrs_transmitter(p.elrs, p.pm02d_interface))
-        .unwrap();
-
-    // run dshot and ultrasonic sensor on other core
+    /* As previously mention, all I/O related tasks have been moved to a
+    separate core (core 1) because in testing it yielded the best performance
+    results (e.g., reaching 500hz with the same core whereas ~250Hz was the
+    best performance with I/O tasks on core 0).
+     */
     spawn_core1(
         p.core1,
         unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
         move || {
             let executor = EXECUTOR1.init(Executor::new());
             executor.run(|spawner| {
+                spawner.spawn(mpu6050_fetcher_loop(p.mpu)).unwrap();
+
+                spawner
+                    .spawn(usb_updater(p.usb_bulk_in, p.usb_bulk_out))
+                    .unwrap();
+                let _ = spawner.spawn(dshot_handler(p.dshot));
+
+                spawner
+                    .spawn(elrs_transmitter(p.elrs, p.pm02d_interface))
+                    .unwrap();
+
                 let _ = spawner.spawn(calc_ultrasonic_height_agl(
                     p.ultrasonic_trig,
                     p.ultrasonic_echo,
                 ));
-                let _ = spawner.spawn(control_loop());
-                let _ = spawner.spawn(position_hold_loop());
-                spawner.spawn(mpu6050_processor_loop()).unwrap();
+                spawner.spawn(bmp_loop(p.bmp)).unwrap();
             })
         },
     );

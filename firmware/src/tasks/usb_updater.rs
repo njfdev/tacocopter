@@ -17,12 +17,15 @@ use tc_interface::{
 
 use crate::{
     consts::USB_LOGGER_RATE,
-    global::{BOOT_TIME, LOG_CHANNEL, SHARED},
+    global::{BOOT_TIME, IMU_FETCH_FREQUENCY_SIGNAL, LOG_CHANNEL, SHARED},
 };
 
 #[embassy_executor::task]
 pub async fn usb_task(mut usb: UsbDevice<'static, Driver<'static, USB>>) {
-    usb.run().await;
+    // loop shouldn't be needed, but just in case to prevent usb from being dropped
+    loop {
+        usb.run().await;
+    }
 }
 
 #[embassy_executor::task]
@@ -42,6 +45,10 @@ pub async fn usb_updater(
         {
             let mut shared = SHARED.lock().await;
             shared.state_data.uptime = BOOT_TIME.get().elapsed().as_secs() as u32;
+            let imu_fetch_freq = IMU_FETCH_FREQUENCY_SIGNAL.try_take();
+            if imu_fetch_freq.is_some() {
+                shared.state_data.imu_fetch_rate = imu_fetch_freq.unwrap();
+            }
             state_data = shared.state_data.clone();
             imu_sensor_data = shared.imu_sensor_data.clone();
             sensor_data = shared.sensor_data.clone();

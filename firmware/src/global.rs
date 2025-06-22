@@ -51,6 +51,11 @@ pub static IMU_RAW_SIGNAL: Signal<CriticalSectionRawMutex, ([f32; 3], [f32; 3])>
 // In celsius
 pub static TEMPERATURE: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 
+// frequency signals (for usb logging)
+pub static IMU_FETCH_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
+pub static IMU_PROCESSOR_SIGNAL: Signal<CriticalSectionRawMutex, (f32, ImuSensorData)> =
+    Signal::new();
+
 pub static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(SharedState {
     state_data: StateData {
         target_update_rate: UPDATE_LOOP_FREQUENCY as f32,
