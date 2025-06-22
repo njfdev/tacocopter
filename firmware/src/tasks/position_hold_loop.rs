@@ -1,5 +1,6 @@
 use core::f32::NAN;
 
+use embassy_futures::yield_now;
 use embassy_time::{Instant, Timer};
 use micromath::F32Ext;
 
@@ -195,10 +196,10 @@ pub async fn position_hold_loop() {
             shared.state_data.position_hold_loop_update_rate = 1.0 / dt;
         }
 
-        Timer::after_micros(
-            ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) - last_update.elapsed().as_micros() as f64)
-                as u64,
-        )
-        .await;
+        while ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) - last_update.elapsed().as_micros() as f64)
+            > 0.0
+        {
+            yield_now().await;
+        }
     }
 }

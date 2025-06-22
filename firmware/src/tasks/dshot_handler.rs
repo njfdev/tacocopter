@@ -3,21 +3,16 @@ use embassy_futures::yield_now;
 use embassy_rp::peripherals::PIO0;
 use embassy_time::{Instant, Timer};
 
-use crate::global::CONTROL_LOOP_VALUES;
+use crate::{consts::DSHOT_UPDATE_FREQ, global::CONTROL_LOOP_VALUES};
 
 const MAX_THROTTLE_PERCENT: f32 = 1.0;
 #[embassy_executor::task]
 pub async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
-    // let before = Instant::now();
-    // while (before.elapsed().as_secs() < 2) {
-    //     dshot.command([0, 0, 0, 0]);
-    //     Timer::after_micros(1000).await;
-    // }
-
     let mut armed = false;
     let mut mtr_pwrs = [0.0, 0.0, 0.0, 0.0];
     let mut _since_last_throttle_update = Instant::now();
     let mut time_since_armed = Instant::now();
+    let mut since_last = Instant::now();
 
     loop {
         let control_loop_recv = CONTROL_LOOP_VALUES.try_take();
@@ -37,6 +32,7 @@ pub async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
             }
             _since_last_throttle_update = Instant::now();
         }
+
         // let pwm_pwr = (((throttle - 176) as f32) / 1634.0) * 90.0 + 10.0;
         // pwm.set_duty_cycle_percent(dshot_cmd as u8).unwrap();
         if armed {
@@ -52,10 +48,11 @@ pub async fn dshot_handler(mut dshot: DshotPio<'static, 4, PIO0>) {
                 dshot_msgs[i] = (dshot_data << 4) + dshot_crc;
             }
             dshot.command(dshot_msgs);
-            Timer::after_micros(1000).await;
-        } else {
-            Timer::after_millis(10).await;
         }
-        yield_now().await;
+
+        while since_last.elapsed().as_micros() < (1_000_000.0 / DSHOT_UPDATE_FREQ) as u64 {
+            yield_now().await;
+        }
+        since_last = Instant::now();
     }
 }

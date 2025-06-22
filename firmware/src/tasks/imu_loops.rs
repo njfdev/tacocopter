@@ -19,14 +19,12 @@ pub async fn mpu6050_fetcher_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
     let mut last_loop = Instant::now();
     let mut last_log = Instant::now();
     loop {
-        let time_to_wait = ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) as u64)
-            .checked_sub(last_loop.elapsed().as_micros());
-        Timer::after_micros(if time_to_wait.is_some() {
-            time_to_wait.unwrap()
-        } else {
-            0
-        })
-        .await;
+        while ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) as u64)
+            .checked_sub(last_loop.elapsed().as_micros())
+            .is_some()
+        {
+            yield_now().await
+        }
         let frequency = 1_000_000.0 / last_loop.elapsed().as_micros() as f32;
         last_loop = Instant::now();
 
@@ -71,15 +69,12 @@ pub async fn mpu6050_processor_loop() {
     let mut since_last = Instant::now();
     let mut iterations = 0;
     loop {
-        let dur_since = Instant::now().checked_duration_since(start);
-        let time_to_wait = (((1_000_000.0 * iterations as f64) / (UPDATE_LOOP_FREQUENCY)) as i64)
-            - dur_since.unwrap().as_micros() as i64;
-        Timer::after_micros(if time_to_wait > 0 {
-            time_to_wait as u64
-        } else {
-            0
-        })
-        .await;
+        while (((1_000_000.0 * iterations as f64) / (UPDATE_LOOP_FREQUENCY)) as i64)
+            - (start.elapsed().as_micros() as i64)
+            > 0
+        {
+            yield_now().await;
+        }
 
         // fetch imu data from other task
         let (gyro_data, accel_data) = IMU_RAW_SIGNAL.wait().await;

@@ -6,6 +6,9 @@ pub const GRAVITY: f32 = 9.80665;
 
 pub const UPDATE_LOOP_FREQUENCY: f64 = 200.0;
 pub const USB_LOGGER_RATE: f32 = 30.0;
+pub const DSHOT_UPDATE_FREQ: f32 = 500.0;
+pub const ELRS_TX_UPDATE_FREQ: f32 = 5.0;
+pub const BMP_UPDATE_FREQ: f32 = 20.0;
 
 // in m
 pub const ULTRASONIC_HEIGHT_ABOVE_BOTTOM: f32 = 0.1515;

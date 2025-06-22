@@ -1,4 +1,8 @@
+use embassy_futures::yield_now;
+use embassy_time::Instant;
+
 use crate::{
+    consts::ELRS_TX_UPDATE_FREQ,
     drivers::{
         elrs::{
             elrs_tx_packets::{BarometerAltitudePacket, BatteryStatePacket, GPSPacket},
@@ -14,7 +18,14 @@ pub async fn elrs_transmitter(mut elrs_handle: Elrs, mut pm02d_interface: Option
     let mut gps_receiver = GPS_SIGNAL.receiver().unwrap();
     let mut altitude_receiver = CURRENT_ALTITUDE.receiver().unwrap();
 
+    let mut since_last = Instant::now();
+
     loop {
+        while since_last.elapsed().as_micros() < (1_000_000.0 / ELRS_TX_UPDATE_FREQ) as u64 {
+            yield_now().await;
+        }
+        since_last = Instant::now();
+
         let altitude_recv = altitude_receiver.try_changed();
         if altitude_recv.is_some() {
             let altitude_packet = altitude_recv.unwrap();

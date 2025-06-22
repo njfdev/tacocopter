@@ -56,9 +56,8 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
     room for more I/O tasks.
     */
     let _ = spawner.spawn(control_loop());
-    let _ = spawner.spawn(position_hold_loop());
     spawner.spawn(mpu6050_processor_loop()).unwrap();
-
+    let _ = spawner.spawn(position_hold_loop());
     /* As previously mention, all I/O related tasks have been moved to a
     separate core (core 1) because in testing it yielded the best performance
     results (e.g., reaching 500hz with the same core whereas ~250Hz was the
@@ -72,9 +71,6 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
             executor.run(|spawner| {
                 spawner.spawn(mpu6050_fetcher_loop(p.mpu)).unwrap();
 
-                spawner
-                    .spawn(usb_updater(p.usb_bulk_in, p.usb_bulk_out))
-                    .unwrap();
                 let _ = spawner.spawn(dshot_handler(p.dshot));
 
                 spawner
@@ -86,6 +82,10 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
                     p.ultrasonic_echo,
                 ));
                 spawner.spawn(bmp_loop(p.bmp)).unwrap();
+
+                spawner
+                    .spawn(usb_updater(p.usb_bulk_in, p.usb_bulk_out))
+                    .unwrap();
             })
         },
     );
