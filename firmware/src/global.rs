@@ -39,7 +39,7 @@ pub static CONTROL_LOOP_VALUES: Signal<CriticalSectionRawMutex, (bool, f32, [f32
     Signal::new();
 pub static GPS_SIGNAL: Watch<CriticalSectionRawMutex, GPSPayload, 2> = Watch::new();
 // measured height in m
-pub static ULTRASONIC_WATCH: Watch<CriticalSectionRawMutex, f32, 1> = Watch::new();
+pub static ULTRASONIC_WATCH: Watch<CriticalSectionRawMutex, Option<f32>, 2> = Watch::new();
 // in format of (pressure in kPa, temperature in kelvin, estimated altitude in m)
 pub static BMP390_WATCH: Watch<CriticalSectionRawMutex, (f32, f32, f32), 1> = Watch::new();
 // processed in position hold control loop, for use in the control loop under position hold mode (altitude, vertical velocity)

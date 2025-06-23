@@ -136,14 +136,13 @@ pub async fn position_hold_loop() {
         if ultrasonic_recv.is_some() {
             let ultrasonic_payload = ultrasonic_recv.unwrap();
             // if not a number or ultrasonic sensor is displaying number too close (e.g., 10cm into the ground, do trust it because something might be blocking it)
-            if ultrasonic_payload.is_nan()
-                || ultrasonic_payload < ULTRASONIC_HEIGHT_ABOVE_BOTTOM / 3.0
+            if ultrasonic_payload.is_none()
+                || ultrasonic_payload.unwrap() < ULTRASONIC_HEIGHT_ABOVE_BOTTOM / 3.0
             {
                 _is_ultrasonic_valid = false;
             } else {
                 _is_ultrasonic_valid = true;
-                _ultrasonic_rel_altitude =
-                    (ultrasonic_payload - ULTRASONIC_HEIGHT_ABOVE_BOTTOM).max(0.0);
+                _ultrasonic_rel_altitude = ultrasonic_payload.unwrap().max(0.0);
                 estimator.update_ultrasonic(_ultrasonic_rel_altitude);
             }
         }

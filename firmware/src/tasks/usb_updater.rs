@@ -1,4 +1,4 @@
-use core::str::FromStr;
+use core::{f32, str::FromStr};
 
 use embassy_futures::select::{select, Either};
 use embassy_rp::{
@@ -20,6 +20,7 @@ use crate::{
     global::{
         BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_FETCH_FREQUENCY_SIGNAL,
         IMU_PROCESSOR_FREQUENCY_SIGNAL, LOG_CHANNEL, POSITION_HOLD_LOOP_FREQUENCY_SIGNAL, SHARED,
+        ULTRASONIC_WATCH,
     },
     tools::yielding_timer::YieldingTimer,
 };
@@ -40,6 +41,7 @@ pub async fn usb_updater(
     let time_between = Duration::from_millis((1000.0 / USB_LOGGER_RATE) as u64);
     let mut since_last = Instant::now();
     let mut cur_log_id: u8 = 0;
+    let mut ultrasonic_receiver = ULTRASONIC_WATCH.receiver().unwrap();
     loop {
         let mut buffer = [0u8; 64];
         let state_data: StateData;
@@ -68,6 +70,10 @@ pub async fn usb_updater(
             }
             state_data = shared.state_data.clone();
             imu_sensor_data = shared.imu_sensor_data.clone();
+            let ultrasonic_recv = ultrasonic_receiver.try_changed();
+            if ultrasonic_recv.is_some() {
+                shared.sensor_data.ultrasonic_dist = ultrasonic_recv.unwrap().unwrap_or(f32::NAN);
+            }
             sensor_data = shared.sensor_data.clone();
             calibration_data = shared.calibration_data.clone();
             elrs_channels = shared.elrs_channels.clone();

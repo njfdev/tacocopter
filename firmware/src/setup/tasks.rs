@@ -1,9 +1,14 @@
 use bmp390::Bmp390;
+use cortex_m::interrupt::InterruptNumber;
 use dshot_pio::dshot_embassy_rp::DshotPio;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
-use embassy_executor::{Executor, Spawner};
+use embassy_executor::{Executor, InterruptExecutor, Spawner};
 use embassy_rp::{
+    bind_interrupts,
+    gpio::AnyPin,
     i2c::{self, Async, I2c},
+    interrupt,
+    interrupt::InterruptExt,
     multicore::{spawn_core1, Stack},
     peripherals::{CORE1, I2C0, I2C1, PIN_16, PIN_17, PIO0, USB},
     usb::{Driver, Endpoint, In, Out},
@@ -31,6 +36,7 @@ use crate::{
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 // static EXECUTOR0: StaticCell<Executor> = StaticCell::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
+static EXECUTOR1_INT: InterruptExecutor = InterruptExecutor::new();
 
 pub struct TaskPeripherals {
     pub core1: Peri<'static, CORE1>,
@@ -40,10 +46,15 @@ pub struct TaskPeripherals {
     pub usb_bulk_out: Endpoint<'static, USB, Out>,
     pub dshot: DshotPio<'static, 4, PIO0>,
     pub mpu: Mpu6050<i2c::I2c<'static, I2C1, i2c::Async>>,
-    pub ultrasonic_trig: Peri<'static, PIN_16>,
-    pub ultrasonic_echo: Peri<'static, PIN_17>,
+    pub ultrasonic_trig: Peri<'static, AnyPin>,
+    pub ultrasonic_echo: Peri<'static, AnyPin>,
     pub elrs: Elrs,
     pub pm02d_interface: Option<PM02D>,
+}
+
+#[interrupt]
+unsafe fn SWI_IRQ_1() {
+    EXECUTOR1_INT.on_interrupt();
 }
 
 pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
@@ -56,12 +67,12 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
     GREATLY. Therefore, any non-I/O tasks should be on core 0 to give core 1
     room for more I/O tasks.
     */
-    let _ = spawner.spawn(control_loop());
-    let _ = spawner.spawn(position_hold_loop());
-
-    spawner
-        .spawn(usb_updater(p.usb_bulk_in, p.usb_bulk_out))
-        .unwrap();
+    interrupt::SWI_IRQ_1.set_priority(interrupt::Priority::P3);
+    let int_spawner = EXECUTOR1_INT.start(interrupt::SWI_IRQ_1);
+    int_spawner.must_spawn(calc_ultrasonic_height_agl(
+        p.ultrasonic_trig,
+        p.ultrasonic_echo,
+    ));
 
     /* As previously mention, all I/O related tasks have been moved to a
     separate core (core 1) because in testing it yielded the best performance
@@ -76,18 +87,24 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
             executor.run(|spawner| {
                 spawner.spawn(mpu6050_fetcher_loop(p.mpu)).unwrap();
                 spawner.spawn(mpu6050_processor_loop()).unwrap();
+
+                spawner
+                    .spawn(usb_updater(p.usb_bulk_in, p.usb_bulk_out))
+                    .unwrap();
+                let _ = spawner.spawn(control_loop());
+                let _ = spawner.spawn(position_hold_loop());
                 spawner
                     .spawn(elrs_transmitter(p.elrs, p.pm02d_interface))
                     .unwrap();
 
                 let _ = spawner.spawn(dshot_handler(p.dshot));
-
-                let _ = spawner.spawn(calc_ultrasonic_height_agl(
-                    p.ultrasonic_trig,
-                    p.ultrasonic_echo,
-                ));
                 spawner.spawn(bmp_loop(p.bmp)).unwrap();
-            })
+
+                // let _ = spawner.spawn(calc_ultrasonic_height_agl(
+                //     p.ultrasonic_trig,
+                //     p.ultrasonic_echo,
+                // ));
+            });
         },
     );
 }
