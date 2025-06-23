@@ -16,8 +16,9 @@ import {
   Legend,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
-import { Euler, Quaternion } from "three";
+import { Camera, Euler, PerspectiveCamera, Quaternion } from "three";
 import { ImuSensor, TCData } from "./types";
+import { Button, ButtonGroup } from "@heroui/react";
 
 function MainInterface({ tcData }: { tcData: TCData }) {
   // Register Chart.js components
@@ -202,35 +203,10 @@ function MainInterface({ tcData }: { tcData: TCData }) {
 
   return (
     <main className="flex flex-col h-screen">
-      <div className="flex h-[80vh] w-[80vw]">
+      <div className="flex h-[30vh] w-[80vw]">
         <div className="w-[30%]">
           <p>
-            Orientation X: {(tcData.imuSensors.orientation[0] / Math.PI) * 180}
-            <br />
-            Orientation Y: {(tcData.imuSensors.orientation[1] / Math.PI) * 180}
-            <br />
-            Orientation Z: {(tcData.imuSensors.orientation[2] / Math.PI) * 180}
-            <br />
-            <br />
-            Gyro Orientation X:{" "}
-            {(tcData.imuSensors.gyro_orientation[0] / Math.PI) * 180}
-            <br />
-            Gyro Orientation Y:{" "}
-            {(tcData.imuSensors.gyro_orientation[1] / Math.PI) * 180}
-            <br />
-            Gyro Orientation Z:{" "}
-            {(tcData.imuSensors.gyro_orientation[2] / Math.PI) * 180}
-            <br />
-            <br />
-            Accel Orientation X:{" "}
-            {(tcData.imuSensors.accel_orientation[0] / Math.PI) * 180}
-            <br />
-            Accel Orientation Y:{" "}
-            {(tcData.imuSensors.accel_orientation[1] / Math.PI) * 180}
-            <br />
-            Accel Orientation Z:{" "}
-            {(tcData.imuSensors.accel_orientation[2] / Math.PI) * 180}
-            <br />
+            <b>Uptime:</b> {formatTime(tcData.state.uptime)}
             <br />
             Target Update Frequency: {tcData.state.target_update_rate} hz
             <br />
@@ -244,17 +220,13 @@ function MainInterface({ tcData }: { tcData: TCData }) {
             Position Hold Loop Update Frequency:{" "}
             {tcData.state.position_hold_loop_update_rate} hz
             <br />
-            Uptime: {formatTime(tcData.state.uptime)}
-            <br />
             Estimated Altitude: {tcData.sensors.estimated_altitude} m
             <br />
             Ultrasonic Sensor: {tcData.sensors.ultrasonic_dist} cm
             <br />
-            Channel 1: {JSON.stringify(tcData.channels)}
-            <br />
-            <button onClick={() => start_gyro_calibration()}>
+            <Button variant="faded" onPress={() => start_gyro_calibration()}>
               Start Gyro Calibration
-            </button>
+            </Button>
             {/* GyroCalib X:{" "}
             {(sensorCalibration.gyro_calibration[0] / Math.PI) * 180}
             <br />
@@ -271,29 +243,8 @@ function MainInterface({ tcData }: { tcData: TCData }) {
             <br />
             AccelCalib Z: {sensorCalibration.accel_calibration[2]} */}
           </p>
-          <label htmlFor="axis-options">Chart Axis {chartChannel}</label>
-          <div id="axis-options" className="flex gap-2">
-            <button
-              disabled={chartChannel == 0}
-              onClick={() => setChartChannel(0)}
-            >
-              X-Axis
-            </button>
-            <button
-              disabled={chartChannel == 1}
-              onClick={() => setChartChannel(1)}
-            >
-              Y-Axis
-            </button>
-            <button
-              disabled={chartChannel == 2}
-              onClick={() => setChartChannel(2)}
-            >
-              Z-Axis
-            </button>
-          </div>
         </div>
-        <div className="w-[75%]">
+        <div className="w-[75%] h-[30vh]">
           <Canvas>
             <ambientLight intensity={0.1} />
             <directionalLight color="white" position={[0, 0, 5]} />
@@ -375,12 +326,67 @@ function MainInterface({ tcData }: { tcData: TCData }) {
           </Canvas>
         </div>
       </div>
-      <div className="">
-        <Line data={chartData} options={chartOptions} />
+      <div className="flex justify-between mr-4">
+        <p className="grow basis-1">
+          <b>Accel Orientation X:</b>{" "}
+          {(tcData.imuSensors.accel_orientation[0] / Math.PI) * 180}
+          <br />
+          <b>Accel Orientation Y:</b>{" "}
+          {(tcData.imuSensors.accel_orientation[1] / Math.PI) * 180}
+          <br />
+          <b>Accel Orientation Z:</b>{" "}
+          {(tcData.imuSensors.accel_orientation[2] / Math.PI) * 180}
+        </p>
+        <p className="grow basis-1">
+          <b>Orientation X:</b>{" "}
+          {(tcData.imuSensors.orientation[0] / Math.PI) * 180}
+          <br />
+          <b>Orientation Y:</b>{" "}
+          {(tcData.imuSensors.orientation[1] / Math.PI) * 180}
+          <br />
+          <b>Orientation Z:</b>{" "}
+          {(tcData.imuSensors.orientation[2] / Math.PI) * 180}
+        </p>
+        <p className="grow basis-1">
+          <b>Gyro Orientation X:</b>{" "}
+          {(tcData.imuSensors.gyro_orientation[0] / Math.PI) * 180}
+          <br />
+          <b>Gyro Orientation Y:</b>{" "}
+          {(tcData.imuSensors.gyro_orientation[1] / Math.PI) * 180}
+          <br />
+          <b>Gyro Orientation Z:</b>{" "}
+          {(tcData.imuSensors.gyro_orientation[2] / Math.PI) * 180}
+        </p>
       </div>
-      <div>
-        <h1>ELRS Channels</h1>
-        <div>{JSON.stringify(tcData.channels)}</div>
+      <div className="min-h-[55vh] mt-4">
+        <div id="axis-options" className="flex gap-2">
+          <ButtonGroup>
+            <Button
+              disabled={chartChannel == 0}
+              color={chartChannel == 0 ? "primary" : "default"}
+              onPress={() => setChartChannel(0)}
+            >
+              X-Axis
+            </Button>
+            <Button
+              disabled={chartChannel == 1}
+              color={chartChannel == 1 ? "primary" : "default"}
+              onPress={() => setChartChannel(1)}
+            >
+              Y-Axis
+            </Button>
+            <Button
+              disabled={chartChannel == 2}
+              color={chartChannel == 2 ? "primary" : "default"}
+              onPress={() => setChartChannel(2)}
+            >
+              Z-Axis
+            </Button>
+          </ButtonGroup>
+        </div>
+        <div className="h-[55vh]">
+          <Line data={chartData} options={chartOptions} />
+        </div>
       </div>
     </main>
   );
