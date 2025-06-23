@@ -11,7 +11,7 @@ license = "MIT OR Apache-2.0"
 # Embassy because for some reason there is different behavior and visibility in the GitHub version (idk why).
 embassy-embedded-hal = { version = "0.3.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt"] }
 embassy-sync = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt"] }
-embassy-executor = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-executor = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "nightly"] }
 embassy-time = { version = "0.4.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { version = "0.4.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "binary-info"] }
 embassy-usb = { version = "0.4.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt"] }

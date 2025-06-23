@@ -1,2 +1,2 @@
 [toolchain]
-targets = ["thumbv8m.main-none-eabihf"]
+targets = ["nightly-thumbv8m.main-none-eabihf"]
