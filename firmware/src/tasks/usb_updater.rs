@@ -103,15 +103,8 @@ pub async fn usb_updater(
         postcard::to_slice(&TCMessage::ElrsChannels(elrs_channels), &mut buffer).unwrap();
         usb_send.write(&buffer).await.unwrap();
 
-        while let Ok(log_msg) = LOG_CHANNEL.try_receive() {
-            postcard::to_slice(
-                &TCMessage::Log(LogData {
-                    id: cur_log_id,
-                    text: String::from_str(&log_msg).unwrap(),
-                }),
-                &mut buffer,
-            )
-            .unwrap();
+        while let Ok(log_part) = LOG_CHANNEL.try_receive() {
+            postcard::to_slice(&TCMessage::Log(log_part), &mut buffer).unwrap();
             usb_send.write(&buffer).await.unwrap();
             cur_log_id = cur_log_id.wrapping_add(1);
         }

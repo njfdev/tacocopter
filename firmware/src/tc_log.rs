@@ -24,7 +24,7 @@ macro_rules! tc_print {
             let mut part: String<60> = String::new();
             let _ = part.push_str(slice);
 
-            let _ = $crate::global::LOG_CHANNEL.try_send(part);
+            // let _ = $crate::global::LOG_CHANNEL.try_send(part);
 
             start = end;
         }

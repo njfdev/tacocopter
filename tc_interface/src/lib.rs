@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 pub const TC_VID: u16 = 0x8216;
 pub const TC_PID: u16 = 0x1248;
 
+pub const LOG_SEGMENT_SIZE: usize = 54;
+
 //----------------------------------------------------------//
 //--------------- Flight Controller Messages ---------------//
 //----------------------------------------------------------//
@@ -55,8 +57,10 @@ pub struct StateData {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LogData {
-    pub id: u8,
-    pub text: String<60>,
+    pub log_id: u16,
+    pub log_part_index: u8,
+    pub log_level: log::Level,
+    pub text: String<LOG_SEGMENT_SIZE>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

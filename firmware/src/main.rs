@@ -15,6 +15,7 @@ use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
 use embassy_sync::lazy_lock::LazyLock;
 
+use crate::drivers::tc_log::TcUsbLogger;
 use crate::global::{BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL};
 use crate::setup::clock::setup_clocks;
 use crate::setup::peripherals::{setup_peripherals, SetupPeripherals};
@@ -35,6 +36,9 @@ async fn main(spawner: Spawner) {
 
     // this initializes BOOT_TIME with the current clock time immediately
     LazyLock::get(&BOOT_TIME);
+
+    // setup logging
+    TcUsbLogger::init();
 
     let mut tc_devices = setup_peripherals(
         spawner.clone(),
@@ -93,6 +97,8 @@ async fn main(spawner: Spawner) {
         }
 
         blink_led(&mut tc_devices.status_led, imu_process_freq).await;
+
+        log::error!("No way");
 
         // tc_println!("Voltage: {}V", voltage);
         // tc_println!("Current: {}A", current);

@@ -934,6 +934,7 @@ dependencies = [
  "embedded-storage",
  "fixed",
  "fixed-macro",
+ "format_no_std",
  "hcsr04_async",
  "heapless 0.8.0",
  "itoa",
@@ -1034,6 +1035,12 @@ name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
+
+[[package]]
+name = "format_no_std"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ae45e32b0bfe2c62c805f8e87027b5aa08562000326edbc5b421ab6d92873a7"
 
 [[package]]
 name = "futures"
@@ -1411,6 +1418,9 @@ name = "log"
 version = "0.4.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "managed"
@@ -2258,6 +2268,7 @@ name = "tc_interface"
 version = "0.1.0"
 dependencies = [
  "heapless 0.8.0",
+ "log",
  "postcard",
  "serde",
 ]

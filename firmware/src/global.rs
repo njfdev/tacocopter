@@ -5,7 +5,7 @@ use embassy_sync::{
 use embassy_time::Instant;
 use heapless::String;
 use tc_interface::{
-    GyroCalibrationProgressData, ImuSensorData, SensorCalibrationData, SensorData,
+    GyroCalibrationProgressData, ImuSensorData, LogData, SensorCalibrationData, SensorData,
     StartGyroCalibrationData, StateData,
 };
 
@@ -25,7 +25,7 @@ pub struct SharedState {
 pub static BOOT_TIME: LazyLock<Instant> = LazyLock::new(|| Instant::now());
 
 // pub static SHARED_LOG: Mutex<ThreadModeRawMutex, String<16384>> = Mutex::new(String::new());
-pub static LOG_CHANNEL: Channel<CriticalSectionRawMutex, String<60>, 64> = Channel::new();
+pub static LOG_CHANNEL: Channel<CriticalSectionRawMutex, LogData, 128> = Channel::new();
 
 pub static ELRS_SIGNAL: Signal<CriticalSectionRawMutex, [u16; 16]> = Signal::new();
 // The first 3 numbers are the IMU Rates in radians per second, the second 3 are for the estimated orientation, and the last three are the accel values
