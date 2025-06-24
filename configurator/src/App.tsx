@@ -9,7 +9,12 @@ import LogInterface from "./LogInterface";
 function App() {
   const [tcData, setTcData] = useState<TCData>({
     state: {
-      sensor_update_rate: 0,
+      uptime: 0,
+      imu_fetch_rate: 0,
+      imu_process_rate: 0,
+      target_update_rate: 0,
+      control_loop_update_rate: 0,
+      position_hold_loop_update_rate: 0,
     },
     imuSensors: {
       // gyroscope: [0, 0, 0],
@@ -27,16 +32,13 @@ function App() {
       accel_calibration: [0, 0, 0],
     },
     channels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    log: {
-      id: -1,
-      text: "",
-    },
+    logs: [],
   });
-  const logsRef = useRef(tcData.log);
+  const logsRef = useRef(tcData.logs);
 
   useEffect(() => {
-    logsRef.current = tcData.log;
-  }, [tcData.log]);
+    logsRef.current = tcData.logs;
+  }, [tcData.logs]);
 
   let [flag, setFlag] = useState(false);
   useEffect(() => {
@@ -75,34 +77,52 @@ function App() {
               ...prev,
               channels: event.payload.ElrsChannels,
             }));
-          } else if ("text" in event.payload) {
-            if (event.payload.id != logsRef.current.id) {
-              let newText = logsRef.current.text + event.payload.text;
-
-              if (newText.length > 10000) {
-                newText = newText.substring(newText.length - 10000);
-              }
-              console.log(newText.length);
-
-              const updatedLog = {
-                id: event.payload.id,
-                text: newText,
-              };
-              setTcData((prev) => ({ ...prev, log: updatedLog }));
-            }
-            // setTcData(() => {
-            //   if (prev.log.id != event.payload.Log.id) {
-            //     prev.log.text += event.payload.Log.text;
-
-            //     prev.log.id = event.payload.Log.id;
-            //   }
-
-            //   return prev;
-            // });
           }
+          // setTcData(() => {
+          //   if (prev.log.id != event.payload.Log.id) {
+          //     prev.log.text += event.payload.Log.text;
+
+          //     prev.log.id = event.payload.Log.id;
+          //   }
+
+          //   return prev;
+          // });
 
           return false;
         });
+      });
+    };
+
+    setupListener();
+
+    // Cleanup the listener when the component unmounts
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
+  useEffect(() => {
+    let unlisten: any;
+
+    // Register the listener once
+    const setupListener = async () => {
+      unlisten = await listen<Message>("tc_log", (event) => {
+        console.log(event.payload);
+        if (
+          logsRef.current.length == 0 ||
+          event.payload[event.payload.length - 1].id !=
+            logsRef.current[logsRef.current.length - 1].id
+        ) {
+          let newLog = logsRef.current.concat(event.payload);
+
+          if (newLog.length > 1000) {
+            newLog = newLog.slice(newLog.length - 1001, newLog.length);
+          }
+          setTcData((prev) => ({ ...prev, logs: newLog }));
+        }
+
+        return false;
       });
     };
 

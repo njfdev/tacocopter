@@ -25,4 +25,5 @@ serde_json = "1"
 rusb = "0.9"
 tc_interface = { version = "0.1.0", path = "../../tc_interface" }
 postcard = "1.1.1"
+log = { version = "0.4.27", features = ["serde"] }
 

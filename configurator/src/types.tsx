@@ -4,7 +4,7 @@ export type Message =
   | { Sensor: Sensor }
   | { SensorCalibration: SensorCalibration }
   | { ElrsChannels: ElrsChannels }
-  | { Log: LogBuffer };
+  | { Log: LogLine[] };
 
 export interface State {
   target_update_rate: number;
@@ -52,8 +52,9 @@ export type ElrsChannels = [
   number
 ];
 
-export interface LogBuffer {
+export interface LogLine {
   id: number;
+  level: string;
   text: string;
 }
 
@@ -63,5 +64,5 @@ export interface TCData {
   sensors: Sensor;
   sensorCalibration: SensorCalibration;
   channels: ElrsChannels;
-  log: LogBuffer;
+  logs: LogLine[];
 }

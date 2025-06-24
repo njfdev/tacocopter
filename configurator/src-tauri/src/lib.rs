@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use log::Level;
 use postcard::from_bytes;
 use rusb::{open_device_with_vid_pid, Context, DeviceHandle, GlobalContext};
 use serde::{Deserialize, Serialize};
@@ -64,9 +65,10 @@ async fn start_gyro_calibration(app: AppHandle) -> Result<(), ()> {
     Ok(())
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-struct LogBuffer {
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct LogLine {
     id: usize,
+    level: Level,
     text: String,
 }
 
@@ -93,24 +95,17 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
     }
 
     let mut message_flag = false;
-    let mut log_buffer = String::new();
     let out_endpoint = 0x01;
     let in_endpoint = 0x81;
-    let mut log_buffer: String = String::new();
-    let mut log_id: usize = 0;
+    let mut log_buffer: Vec<LogData> = Vec::new();
     // Read from bulk IN endpoint (example: 0x81)
     loop {
         if message_flag == false && log_buffer.len() > 0 {
-            app.emit(
-                "tc_data",
-                LogBuffer {
-                    id: log_id,
-                    text: log_buffer.clone(),
-                },
-            )
-            .unwrap();
+            let processed_logs = combine_logs(&log_buffer);
+            println!("Log: {:#?}", processed_logs);
+
+            app.emit("tc_log", processed_logs).unwrap();
             log_buffer.clear();
-            log_id = log_id.wrapping_add(1);
         }
 
         let mut buf = [0u8; 64];
@@ -176,7 +171,7 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
                         message_flag = value;
                     }
                     TCMessage::Log(data) => {
-                        log_buffer += &data.text;
+                        log_buffer.push(data);
                     }
                     _ => {
                         app.emit("tc_data", message).unwrap();
@@ -187,4 +182,44 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
     }
 
     Ok(())
+}
+
+fn combine_logs(log_parts: &Vec<LogData>) -> Vec<LogLine> {
+    // sort the log parts so they are in order by id and the part number within that log
+    let mut sorted_log_parts = log_parts.clone();
+    sorted_log_parts.sort_by(|a, b| {
+        ((a.log_id as u32) << 8 | a.log_part_index as u32)
+            .cmp(&((b.log_id as u32) << 8 | b.log_part_index as u32))
+    });
+
+    // combine the parts of a log with an id so each id is 1 log line
+    let mut sorted_logs = Vec::new();
+    let mut cur_log_text = String::new();
+    let mut cur_log_level = sorted_log_parts[0].log_level;
+    let mut cur_log_id = sorted_log_parts[0].log_id;
+    for i in 0..sorted_log_parts.len() {
+        let cur_log_part = &sorted_log_parts[i];
+        if cur_log_id != cur_log_part.log_id {
+            sorted_logs.push(LogLine {
+                id: cur_log_id.into(),
+                level: cur_log_level,
+                text: cur_log_text,
+            });
+            cur_log_text = String::new();
+        }
+        cur_log_id = cur_log_part.log_id;
+        cur_log_level = cur_log_part.log_level;
+        cur_log_text += cur_log_part.text.as_str();
+    }
+
+    // handle last log
+    if cur_log_text.len() > 0 {
+        sorted_logs.push(LogLine {
+            id: cur_log_id.into(),
+            level: cur_log_level,
+            text: cur_log_text,
+        });
+    }
+
+    sorted_logs
 }

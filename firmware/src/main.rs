@@ -98,8 +98,6 @@ async fn main(spawner: Spawner) {
 
         blink_led(&mut tc_devices.status_led, imu_process_freq).await;
 
-        log::error!("No way");
-
         // tc_println!("Voltage: {}V", voltage);
         // tc_println!("Current: {}A", current);
         // tc_println!(
