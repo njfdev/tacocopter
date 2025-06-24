@@ -2,7 +2,8 @@ use core::f32::consts::PI;
 
 use embassy_rp::{
     gpio::{AnyPin, Input, Level, Output, Pull},
-    peripherals::{PIN_16, PIN_17},
+    peripherals::{PIN_16, PIN_17, PIO1},
+    pio::{Common, PioPin, StateMachine},
     Peri,
 };
 use embassy_time::{with_timeout, Duration, Instant, Timer};
@@ -18,10 +19,11 @@ use crate::{
 
 #[embassy_executor::task]
 pub async fn calc_ultrasonic_height_agl(
-    trig_pin_peripheral: Peri<'static, AnyPin>,
-    echo_pin_peripheral: Peri<'static, AnyPin>,
+    trig_pin_peripheral: Peri<'static, PIN_16>,
+    echo_pin_peripheral: Peri<'static, PIN_17>,
+    pio: Peri<'static, PIO1>,
 ) {
-    let mut ultrasonic_sensor = HcSr04::new(trig_pin_peripheral, echo_pin_peripheral);
+    let mut ultrasonic_sensor = HcSr04::new(trig_pin_peripheral, echo_pin_peripheral, pio);
 
     let mut imu_rotation = (0.0, 0.0, 0.0);
 
@@ -31,16 +33,7 @@ pub async fn calc_ultrasonic_height_agl(
     // wait for 10 milliseconds for any signals to clear (e.g. the pin was held high by default, then low, so it triggers once)
     Timer::after_millis(10).await;
     loop {
-        YieldingTimer::after_millis(1000 / 30).await;
-
-        let ultrasonic_res =
-            with_timeout(Duration::from_millis(150), ultrasonic_sensor.get_dist()).await;
-
-        if ultrasonic_res.is_err() {
-            continue;
-        }
-
-        let distance = ultrasonic_res.unwrap();
+        let distance = ultrasonic_sensor.get_dist().await;
 
         let imu_recv = imu_reciever.try_get();
         if imu_recv.is_some() {
