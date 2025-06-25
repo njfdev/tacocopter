@@ -3,8 +3,13 @@ MEMORY {
      * The RP2350 has either external or internal flash.
      *
      * 2 MiB is a safe default here, although a Pico 2 has 4 MiB.
+     * In our case, 1 MiB is used to give more room for the 2 MiB key-value db store.
      */
     FLASH : ORIGIN = 0x10000000, LENGTH = 2048K
+    /*
+     * The area for our DB store, after the flash region
+     */
+    CONFIG : ORIGIN = 0x10200000, LENGTH = 2048K
     /*
      * RAM consists of 8 banks, SRAM0-SRAM7, with a striped mapping.
      * This is usually good for performance, as it distributes load on
@@ -74,3 +79,4 @@ SECTIONS {
 PROVIDE(start_to_end = __end_block_addr - __start_block_addr);
 PROVIDE(end_to_start = __start_block_addr - __end_block_addr);
 
+__config_start = ORIGIN(CONFIG);

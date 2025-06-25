@@ -1,15 +1,19 @@
+use core::cell::OnceCell;
+
+use ekv::Database;
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, lazy_lock::LazyLock,
-    mutex::Mutex, signal::Signal, watch::Watch,
+    mutex::Mutex, once_lock::OnceLock, signal::Signal, watch::Watch,
 };
 use embassy_time::Instant;
 use heapless::String;
+use static_cell::StaticCell;
 use tc_interface::{
     GyroCalibrationProgressData, ImuSensorData, LogData, SensorCalibrationData, SensorData,
     StartGyroCalibrationData, StateData,
 };
 
-use crate::{consts::UPDATE_LOOP_FREQUENCY, drivers::m100_gps::GPSPayload};
+use crate::{consts::UPDATE_LOOP_FREQUENCY, drivers::m100_gps::GPSPayload, setup::flash::DbType};
 
 // TODO: split this shared state for faster performance
 #[derive(Default)]
@@ -96,3 +100,6 @@ pub static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(Shar
         },
     },
 });
+
+// key value store database
+pub static DATABASE: OnceLock<DbType> = OnceLock::new();

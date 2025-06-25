@@ -13,10 +13,14 @@ use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
 use embassy_sync::lazy_lock::LazyLock;
+use embassy_time::Timer;
+use heapless::{String, Vec};
+use log::info;
 
 use crate::drivers::tc_log::TcUsbLogger;
-use crate::global::{BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL};
+use crate::global::{BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, DATABASE};
 use crate::setup::clock::setup_clocks;
+use crate::setup::flash::setup_flash_store;
 use crate::setup::peripherals::{setup_peripherals, SetupPeripherals};
 use crate::setup::tasks::{spawn_tasks, TaskPeripherals};
 use crate::setup::usb::setup_usb_interface;
@@ -36,8 +40,13 @@ async fn main(spawner: Spawner) {
     // this initializes BOOT_TIME with the current clock time immediately
     LazyLock::get(&BOOT_TIME);
 
+    let (usb, bulk_in, bulk_out) = setup_usb_interface(p.USB);
+
     // setup logging
     TcUsbLogger::init().unwrap();
+
+    // setup the key-store db
+    setup_flash_store(p.FLASH).await;
 
     let mut tc_devices = setup_peripherals(
         spawner.clone(),
@@ -63,8 +72,6 @@ async fn main(spawner: Spawner) {
         },
     )
     .await;
-
-    let (usb, bulk_in, bulk_out) = setup_usb_interface(p.USB);
 
     spawn_tasks(
         spawner.clone(),
