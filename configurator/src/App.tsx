@@ -5,6 +5,7 @@ import { Message, TCData } from "./types";
 import { listen } from "@tauri-apps/api/event";
 import ElrsInterface from "./ElrsInterface";
 import LogInterface from "./LogInterface";
+import CalibrationInterface from "./CalibrationInterface";
 
 function App() {
   const [tcData, setTcData] = useState<TCData>({
@@ -144,6 +145,9 @@ function App() {
         </Tab>
         <Tab key="elrs" title="ELRS">
           <ElrsInterface tcData={tcData} />
+        </Tab>
+        <Tab key="calib" title="Calibration">
+          <CalibrationInterface tcData={tcData} />
         </Tab>
         <Tab key="log" title="Logs">
           <LogInterface tcData={tcData} setTcData={setTcData} />
