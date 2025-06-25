@@ -11,7 +11,7 @@ use log::info;
 use crate::global::DATABASE;
 
 const FLASH_SIZE: usize = 4 * 1024 * 1024; // 2 MiB
-const CONFIG_SIZE: usize = 2 * 1024 * 1024; // 2 MiB
+pub const CONFIG_SIZE: usize = 2 * 1024 * 1024; // 2 MiB
 
 extern "C" {
     // Flash storage used for configuration

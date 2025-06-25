@@ -18,6 +18,7 @@ use heapless::{String, Vec};
 use log::info;
 
 use crate::drivers::tc_log::TcUsbLogger;
+use crate::drivers::tc_store::{SensorCalibrationData, TcStore};
 use crate::global::{BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, DATABASE};
 use crate::setup::clock::setup_clocks;
 use crate::setup::flash::setup_flash_store;
@@ -47,6 +48,12 @@ async fn main(spawner: Spawner) {
 
     // setup the key-store db
     setup_flash_store(p.FLASH).await;
+
+    TcStore::set(SensorCalibrationData {
+        gyro_biases: (-0.0356924, -0.0230041, -0.03341522),
+        accel_biases: (0.044174805, -0.063529054, 0.07425296),
+    })
+    .await;
 
     let mut tc_devices = setup_peripherals(
         spawner.clone(),
@@ -103,6 +110,8 @@ async fn main(spawner: Spawner) {
         }
 
         blink_led(&mut tc_devices.status_led, imu_process_freq).await;
+
+        // info!("Data: {:?}", TcStore::get::<SensorCalibrationData>().await);
 
         // tc_println!("Voltage: {}V", voltage);
         // tc_println!("Current: {}A", current);
