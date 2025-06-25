@@ -1,5 +1,11 @@
 use core::f32::consts::PI;
 
+use crate::{
+    consts::{ULTRASONIC_DISTANCE_TO_CENTER_PITCH, ULTRASONIC_HEIGHT_ABOVE_BOTTOM},
+    drivers::hc_sr04::HcSr04,
+    global::{IMU_SIGNAL, SHARED, TEMPERATURE, ULTRASONIC_WATCH},
+    tools::yielding_timer::YieldingTimer,
+};
 use embassy_rp::{
     gpio::{AnyPin, Input, Level, Output, Pull},
     peripherals::{PIN_16, PIN_17, PIO1},
@@ -8,14 +14,6 @@ use embassy_rp::{
 };
 use embassy_time::{with_timeout, Duration, Instant, Timer};
 use micromath::F32Ext;
-
-use crate::{
-    consts::{ULTRASONIC_DISTANCE_TO_CENTER_PITCH, ULTRASONIC_HEIGHT_ABOVE_BOTTOM},
-    drivers::hc_sr04::HcSr04,
-    global::{IMU_SIGNAL, SHARED, TEMPERATURE, ULTRASONIC_WATCH},
-    tc_println,
-    tools::yielding_timer::YieldingTimer,
-};
 
 #[embassy_executor::task]
 pub async fn calc_ultrasonic_height_agl(
@@ -49,9 +47,5 @@ pub async fn calc_ultrasonic_height_agl(
         } else {
             ultrasonic_sender.send(None);
         }
-
-        // tc_println!("Height: {}m", height_agl_m);
-
-        // tc_println!("Distance ({}us): {:.2?} cm", time, distance);
     }
 }

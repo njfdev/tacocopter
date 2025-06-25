@@ -7,7 +7,6 @@ pub mod drivers;
 pub mod global;
 pub mod setup;
 pub mod tasks;
-pub mod tc_log;
 pub mod tools;
 
 use embassy_executor::Spawner;
@@ -38,7 +37,7 @@ async fn main(spawner: Spawner) {
     LazyLock::get(&BOOT_TIME);
 
     // setup logging
-    TcUsbLogger::init();
+    TcUsbLogger::init().unwrap();
 
     let mut tc_devices = setup_peripherals(
         spawner.clone(),

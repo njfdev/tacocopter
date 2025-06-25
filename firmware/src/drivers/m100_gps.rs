@@ -8,9 +8,10 @@ use embassy_rp::{
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch::Sender};
 use embassy_time::Instant;
 use embedded_io_async::Read;
+use log::{debug, error, warn};
 use static_cell::StaticCell;
 
-use crate::{global::GPS_SIGNAL, tc_println, tools::yielding_timer::YieldingTimer};
+use crate::{global::GPS_SIGNAL, tools::yielding_timer::YieldingTimer};
 
 bind_interrupts!(struct UartIrq {
   UART1_IRQ => BufferedInterruptHandler<UART1>;
@@ -76,7 +77,7 @@ pub async fn init_gps(
 
 #[embassy_executor::task]
 async fn reader(mut rx: BufferedUartRx) {
-    tc_println!("Reading...");
+    debug!("GPS Reading...");
     let mut current_packet: [u8; 8192] = [0; 8192];
     let mut current_len = 0;
     let mut time_since_last = Instant::now();
@@ -90,11 +91,11 @@ async fn reader(mut rx: BufferedUartRx) {
                 current_len += n;
             }
             Ok(0) => {
-                tc_println!("Read 0 bytes");
+                debug!("GPS Read 0 bytes");
                 YieldingTimer::after_millis(100).await;
             }
             Err(e) => {
-                tc_println!("Read error: {:?}", e);
+                error!("GPS Read error: {:?}", e);
                 YieldingTimer::after_millis(100).await;
             }
             _ => {
@@ -156,14 +157,12 @@ async fn handle_packet(
     let message_class = data[2];
     let message_id = data[3];
     let payload = &data[6..(len - 2)];
-    let _payload_len = len - 8;
+    let payload_len = len - 8;
 
-    // tc_println!(
-    //     "Received message with class {:02x?} and id {:02x?} and length {}: ",
-    //     message_class,
-    //     message_id,
-    //     payload_len
-    // );
+    debug!(
+        "GPS Received message with class {:02x?} and id {:02x?} and length {}: ",
+        message_class, message_id, payload_len
+    );
 
     match message_class {
         // RC Channels Packed Payload
@@ -359,11 +358,11 @@ async fn handle_packet(
                 gps_sender.send(gps_payload);
             }
             _ => {
-                tc_println!("Unhandled message id: {:2x?}", message_id);
+                warn!("GPS Unhandled message id: {:2x?}", message_id);
             }
         },
         _ => {
-            tc_println!("Unhandled message class: {:2x?}", message_class);
+            warn!("GPS Unhandled message class: {:2x?}", message_class);
         }
     }
 }

@@ -12,8 +12,9 @@ use embassy_rp::{
 use embassy_time::Instant;
 use fixed::FixedU32;
 use fixed_macro::types::U56F8;
+use log::debug;
 
-use crate::{tc_println, tools::yielding_timer::YieldingTimer};
+use crate::tools::yielding_timer::YieldingTimer;
 
 pub struct HcSr04 {
     // trig: Output<'static>,
@@ -79,6 +80,8 @@ impl HcSr04 {
 
         sm1.set_config(&conf);
         sm1.set_enable(true);
+
+        debug!("Start PIO and State Machine for the ultrasonic sensor.");
 
         Self { sm: sm1 }
     }

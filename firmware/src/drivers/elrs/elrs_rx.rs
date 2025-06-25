@@ -1,10 +1,10 @@
 use crate::{
     global::{ELRS_SIGNAL, SHARED},
-    tc_println,
     tools::yielding_timer::YieldingTimer,
 };
 use embassy_rp::uart::BufferedUartRx;
 use embedded_io_async::Read;
+use log::{debug, error, trace, warn};
 
 #[embassy_executor::task]
 pub async fn elrs_receive_handler(mut rx: BufferedUartRx) {
@@ -14,27 +14,27 @@ pub async fn elrs_receive_handler(mut rx: BufferedUartRx) {
         let mut buf = [0; 1024];
         match rx.read(&mut buf).await {
             Ok(n) if n > 0 => {
-                //info!("RX first {} bytes: {:2x?}", n, &buf[..n]);
+                trace!("ELRS RX first {} bytes: {:2x?}", n, &buf[..n]);
                 current_packet[current_len..(current_len + n)].copy_from_slice(&buf[..n]);
                 current_len += n;
             }
             Ok(0) => {
-                // tc_println!("Read 0 bytes");
+                debug!("Read 0 bytes");
                 YieldingTimer::after_millis(100).await;
             }
-            Err(_e) => {
-                // tc_println!("Read error: {:?}", e);
+            Err(e) => {
+                debug!("Read error: {:?}", e);
                 YieldingTimer::after_millis(100).await;
             }
             _ => {
                 YieldingTimer::after_millis(100).await;
             }
         }
-        // tc_println!(
-        //     "Packet ({}): {:2x?}",
-        //     current_len,
-        //     &current_packet[..current_len]
-        // );
+        trace!(
+            "ELRS Packet ({}): {:2x?}",
+            current_len,
+            &current_packet[..current_len]
+        );
 
         if current_len == 0 {
             continue;
@@ -133,7 +133,7 @@ async fn handle_packet(data: &[u8], len: usize) {
              * add 4 to that.
              */
             if len != 26 {
-                tc_println!(
+                error!(
                     "RC Channels Packed Payload is {} bytes too long!",
                     (len - 26)
                 );
@@ -145,33 +145,13 @@ async fn handle_packet(data: &[u8], len: usize) {
                     shared.elrs_channels = chnls.clone();
                 }
                 ELRS_SIGNAL.signal(chnls);
-
-                // info!(
-                //     "Channels: {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
-                //     chnls[0],
-                //     chnls[1],
-                //     chnls[2],
-                //     chnls[3],
-                //     chnls[4],
-                //     chnls[5],
-                //     chnls[6],
-                //     chnls[7],
-                //     chnls[8],
-                //     chnls[9],
-                //     chnls[10],
-                //     chnls[11],
-                //     chnls[12],
-                //     chnls[13],
-                //     chnls[14],
-                //     chnls[15]
-                // );
             }
         }
         0x14 => {
             //print_link_statistics(data[3..13].try_into().unwrap());
         }
         _ => {
-            tc_println!("Unhandled frame type: {:2x?}", frame_type);
+            warn!("Unhandled frame type: {:2x?}", frame_type);
         }
     }
 }
