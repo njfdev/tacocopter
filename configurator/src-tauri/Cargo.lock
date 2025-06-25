@@ -537,6 +537,7 @@ name = "configurator"
 version = "0.1.0"
 dependencies = [
  "log",
+ "pkg-config",
  "postcard",
  "rusb",
  "serde",
