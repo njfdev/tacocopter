@@ -8,6 +8,7 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_rp::{
     bind_interrupts,
+    clocks::clk_sys_freq,
     gpio::{AnyPin, Level, Output},
     i2c::{Async, I2c},
     peripherals::{
@@ -18,6 +19,7 @@ use embassy_rp::{
     Peri,
 };
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use micromath::F32Ext;
 use mpu6050::Mpu6050;
 
 bind_interrupts!(struct Pio0Irqs {
@@ -70,6 +72,8 @@ pub async fn setup_peripherals(spawner: Spawner, p: SetupPeripherals) -> TcDevic
 
     let mpu = setup_imu(p.mpu_i2c1_interface, p.mpu_scl, p.mpu_sda).await;
 
+    let divider = (clk_sys_freq() as f32) / (8.0 * 600_000.0);
+    let divider_whole = divider.floor();
     let dshot = DshotPio::<4, _>::new(
         p.dshot_pio,
         Pio0Irqs,
@@ -77,7 +81,10 @@ pub async fn setup_peripherals(spawner: Spawner, p: SetupPeripherals) -> TcDevic
         p.dshot_mtr_2,
         p.dshot_mtr_3,
         p.dshot_mtr_4,
-        (31, 74), // divider ratio of 31.25
+        (
+            divider_whole as u16,
+            ((divider - divider_whole) * 256.0) as u8,
+        ), // divider ratio of 31.25 for 150Mhz for DShot600
     );
 
     let pm02d_interface = PM02D::new(I2cDevice::new(i2c0_bus)).await;
