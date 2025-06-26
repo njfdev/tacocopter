@@ -9,11 +9,17 @@ use embassy_time::Instant;
 use heapless::String;
 use static_cell::StaticCell;
 use tc_interface::{
-    GyroCalibrationProgressData, ImuSensorData, LogData, SensorCalibrationData, SensorData,
-    StartGyroCalibrationData, StateData,
+    GyroCalibrationProgressData, ImuSensorData, LogData, SensorCalibrationData,
+    SensorCalibrationType, SensorData, StartGyroCalibrationData, StateData,
 };
 
 use crate::{consts::UPDATE_LOOP_FREQUENCY, drivers::m100_gps::GPSPayload, setup::flash::DbType};
+
+#[derive(Clone)]
+pub enum CalibrationSensorType {
+    Gyro(StartGyroCalibrationData),
+    Accel,
+}
 
 // TODO: split this shared state for faster performance
 #[derive(Default)]
@@ -23,7 +29,6 @@ pub struct SharedState {
     pub sensor_data: SensorData,
     pub calibration_data: SensorCalibrationData,
     pub elrs_channels: [u16; 16],
-    pub gyro_calibration_state: GyroCalibrationProgressData,
 }
 
 pub static BOOT_TIME: LazyLock<Instant> = LazyLock::new(|| Instant::now());
@@ -54,6 +59,12 @@ pub static ARMED_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
 pub static IMU_RAW_SIGNAL: Signal<CriticalSectionRawMutex, ([f32; 3], [f32; 3])> = Signal::new();
 // In celsius
 pub static TEMPERATURE: Signal<CriticalSectionRawMutex, f32> = Signal::new();
+
+// for negotiating and sending sensor calibration between imu and usb loops
+pub static START_CALIBRATION_SIGNAL: Signal<CriticalSectionRawMutex, CalibrationSensorType> =
+    Signal::new();
+pub static CALIBRATION_FEEDBACK_SIGNAL: Signal<CriticalSectionRawMutex, SensorCalibrationType> =
+    Signal::new();
 
 // frequency signals (for usb logging)
 pub static IMU_FETCH_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
@@ -89,16 +100,6 @@ pub static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(Shar
         accel_calibration: [0.0, 0.0, 0.0],
     },
     elrs_channels: [0; 16],
-    gyro_calibration_state: GyroCalibrationProgressData {
-        progress: 0.0,
-        samples: 0,
-        seconds_remaining: 0.0,
-        is_finished: true,
-        options: StartGyroCalibrationData {
-            sampling_time: 0.0,
-            sampling_rate: 0.0,
-        },
-    },
 });
 
 // key value store database

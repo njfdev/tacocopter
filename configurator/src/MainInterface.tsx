@@ -105,10 +105,6 @@ function MainInterface({ tcData }: { tcData: TCData }) {
     })();
   }, []);
 
-  const start_gyro_calibration = async () => {
-    await invoke("start_gyro_calibration", {});
-  };
-
   const max_data_points = 100;
   const [chartChannel, setChartChannel] = useState(0);
   let update_chart = (sensor_data: ImuSensor) => {
@@ -224,9 +220,9 @@ function MainInterface({ tcData }: { tcData: TCData }) {
             <br />
             Ultrasonic Sensor: {tcData.sensors.ultrasonic_dist} cm
             <br />
-            <Button variant="faded" onPress={() => start_gyro_calibration()}>
+            {/* <Button variant="faded" onPress={() => start_gyro_calibration()}>
               Start Gyro Calibration
-            </Button>
+            </Button> */}
             {/* GyroCalib X:{" "}
             {(sensorCalibration.gyro_calibration[0] / Math.PI) * 180}
             <br />

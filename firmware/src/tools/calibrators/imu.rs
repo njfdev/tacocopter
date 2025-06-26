@@ -9,7 +9,51 @@
 
 // use crate::{global::SHARED, tc_println};
 
-// const CALIBRATION_STEPS: usize = 1000;
+use embassy_time::Instant;
+use heapless::Vec;
+use tc_interface::StartGyroCalibrationData;
+
+const MAX_CALIBRATION_STEPS: usize = 20000;
+
+pub struct GyroCalibrator {
+    data_points: Vec<(f32, f32, f32), MAX_CALIBRATION_STEPS>,
+    start_time: Instant,
+    is_running: bool,
+}
+
+impl GyroCalibrator {
+    pub fn new() -> Self {
+        Self {
+            data_points: Vec::new(),
+            start_time: Instant::now(),
+            is_running: false,
+        }
+    }
+
+    // returns the calibrated values when done, otherwise it returns the time remaining and samples collected
+    pub fn process_data(
+        &mut self,
+        data: (f32, f32, f32),
+        settings: StartGyroCalibrationData,
+    ) -> Result<(f32, f32, f32), (f32, usize)> {
+        if self.is_running == false {
+            self.start_time = Instant::now();
+            self.is_running = true;
+        }
+
+        self.data_points.push(data);
+
+        let elapsed = self.start_time.elapsed().as_micros() as f32 / 1_000_000.0;
+        if elapsed > settings.sampling_time {
+            let bias = calc_averages(&self.data_points);
+            self.data_points.clear();
+            self.is_running = false;
+            return Ok(bias);
+        }
+
+        return Err((settings.sampling_time - elapsed, self.data_points.len()));
+    }
+}
 
 // async fn calibrate_accel(mpu: &mut Mpu6050<i2c::I2c<'static, I2C1, i2c::Async>>, duration: f32) {
 //     let time_between = ((duration / (CALIBRATION_STEPS as f32)) * 1_000_000.0) as u64;
@@ -80,15 +124,15 @@
 //     bias
 // }
 
-// fn calc_averages(data: [[f32; 3]; CALIBRATION_STEPS]) -> [f32; 3] {
-//     let mut avgs: [f32; 3] = [0.0; 3];
-//     for val in data.iter() {
-//         avgs[0] += val[0];
-//         avgs[1] += val[1];
-//         avgs[2] += val[2];
-//     }
-//     avgs[0] /= CALIBRATION_STEPS as f32;
-//     avgs[1] /= CALIBRATION_STEPS as f32;
-//     avgs[2] /= CALIBRATION_STEPS as f32;
-//     return avgs;
-// }
+fn calc_averages(data: &Vec<(f32, f32, f32), MAX_CALIBRATION_STEPS>) -> (f32, f32, f32) {
+    let mut avgs: (f32, f32, f32) = (0.0, 0.0, 0.0);
+    for val in data.iter() {
+        avgs.0 += val.0;
+        avgs.1 += val.1;
+        avgs.2 += val.2;
+    }
+    avgs.0 /= data.len() as f32;
+    avgs.1 /= data.len() as f32;
+    avgs.2 /= data.len() as f32;
+    return avgs;
+}

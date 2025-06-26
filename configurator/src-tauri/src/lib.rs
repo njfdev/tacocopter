@@ -122,7 +122,6 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
             postcard::to_slice(
                 &ConfiguratorMessage::StartGyroCalibration(StartGyroCalibrationData {
                     sampling_time: 10.0,
-                    sampling_rate: 100.0,
                 }),
                 &mut buf,
             )

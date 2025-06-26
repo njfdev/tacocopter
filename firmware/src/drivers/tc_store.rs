@@ -4,6 +4,7 @@
  */
 
 use ekv::ReadError;
+use log::info;
 use postcard::from_bytes;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 

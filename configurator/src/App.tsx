@@ -109,7 +109,7 @@ function App() {
     // Register the listener once
     const setupListener = async () => {
       unlisten = await listen<Message>("tc_log", (event) => {
-        console.log(event.payload);
+        // console.log(event.payload);
         if (
           logsRef.current.length == 0 ||
           event.payload[event.payload.length - 1].id !=

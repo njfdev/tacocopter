@@ -11,15 +11,16 @@ use embassy_usb::UsbDevice;
 use heapless::String;
 use postcard::from_bytes;
 use tc_interface::{
-    ConfiguratorMessage, ImuSensorData, LogData, SensorCalibrationData, SensorData, StateData,
-    TCMessage,
+    ConfiguratorMessage, ImuSensorData, LogData, SensorCalibrationData, SensorData,
+    StartGyroCalibrationData, StateData, TCMessage,
 };
 
 use crate::{
     consts::USB_LOGGER_RATE,
     global::{
-        BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_FETCH_FREQUENCY_SIGNAL,
-        IMU_PROCESSOR_FREQUENCY_SIGNAL, LOG_CHANNEL, POSITION_HOLD_LOOP_FREQUENCY_SIGNAL, SHARED,
+        CalibrationSensorType, BOOT_TIME, CALIBRATION_FEEDBACK_SIGNAL,
+        CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_FETCH_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL,
+        LOG_CHANNEL, POSITION_HOLD_LOOP_FREQUENCY_SIGNAL, SHARED, START_CALIBRATION_SIGNAL,
         ULTRASONIC_WATCH,
     },
     tools::yielding_timer::YieldingTimer,
@@ -96,8 +97,24 @@ pub async fn usb_updater(
         usb_send.write(&buffer).await.unwrap();
 
         // send sensor calibration data
-        postcard::to_slice(&TCMessage::SensorCalibration(calibration_data), &mut buffer).unwrap();
-        usb_send.write(&buffer).await.unwrap();
+        let calibration_status_res = CALIBRATION_FEEDBACK_SIGNAL.try_take();
+        if calibration_status_res.is_some() {
+            postcard::to_slice(
+                &TCMessage::SensorCalibration(calibration_status_res.unwrap()),
+                &mut buffer,
+            )
+            .unwrap();
+            usb_send.write(&buffer).await.unwrap();
+        } else {
+            postcard::to_slice(
+                &TCMessage::SensorCalibration(tc_interface::SensorCalibrationType::Data(
+                    calibration_data,
+                )),
+                &mut buffer,
+            )
+            .unwrap();
+            usb_send.write(&buffer).await.unwrap();
+        }
 
         // send elrs channel data
         postcard::to_slice(&TCMessage::ElrsChannels(elrs_channels), &mut buffer).unwrap();
@@ -129,31 +146,29 @@ pub async fn usb_updater(
                 match msg {
                     ConfiguratorMessage::StartGyroCalibration(data) => {
                         {
-                            let mut shared = SHARED.lock().await;
-                            shared.gyro_calibration_state.options = data;
-                            shared.gyro_calibration_state.is_finished = false;
+                            START_CALIBRATION_SIGNAL.signal(CalibrationSensorType::Gyro(data));
                         }
-                        loop {
-                            Timer::after(time_between).await;
+                        // loop {
+                        //     Timer::after(time_between).await;
 
-                            let calib_state;
-                            {
-                                let shared = SHARED.lock().await;
-                                calib_state = shared.gyro_calibration_state.clone();
-                            }
+                        //     let calib_state;
+                        //     {
+                        //         let shared = SHARED.lock().await;
+                        //         calib_state = shared.gyro_calibration_state.clone();
+                        //     }
 
-                            // indicate end of data
-                            postcard::to_slice(
-                                &TCMessage::GyroCalibrationProgress(calib_state.clone()),
-                                &mut buffer,
-                            )
-                            .unwrap();
-                            usb_send.write(&buffer).await.unwrap();
+                        //     // indicate end of data
+                        //     postcard::to_slice(
+                        //         &TCMessage::GyroCalibrationProgress(calib_state.clone()),
+                        //         &mut buffer,
+                        //     )
+                        //     .unwrap();
+                        //     usb_send.write(&buffer).await.unwrap();
 
-                            if calib_state.is_finished == true {
-                                break;
-                            }
-                        }
+                        //     if calib_state.is_finished == true {
+                        //         break;
+                        //     }
+                        // }
                     }
                 }
             }

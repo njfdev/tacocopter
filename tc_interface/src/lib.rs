@@ -65,11 +65,15 @@ pub struct LogData {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct GyroCalibrationProgressData {
-    pub progress: f32,
-    pub samples: u32,
+    pub samples: usize,
     pub seconds_remaining: f32,
-    pub is_finished: bool,
-    pub options: StartGyroCalibrationData,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum SensorCalibrationType {
+    Data(SensorCalibrationData),
+    GyroProgress(GyroCalibrationProgressData),
+    GyroFinished,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -80,10 +84,9 @@ pub enum TCMessage {
     State(StateData),
     ImuSensor(ImuSensorData),
     Sensor(SensorData),
-    SensorCalibration(SensorCalibrationData),
+    SensorCalibration(SensorCalibrationType),
     ElrsChannels([u16; 16]),
     Log(LogData),
-    GyroCalibrationProgress(GyroCalibrationProgressData),
 }
 
 unsafe impl Send for ImuSensorData {}
@@ -95,7 +98,6 @@ unsafe impl Send for ImuSensorData {}
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct StartGyroCalibrationData {
     pub sampling_time: f32,
-    pub sampling_rate: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

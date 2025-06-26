@@ -2,7 +2,7 @@ export type Message =
   | { State: State }
   | { ImuSensor: ImuSensor }
   | { Sensor: Sensor }
-  | { SensorCalibration: SensorCalibration }
+  | { SensorCalibration: SensorCalibration | string }
   | { ElrsChannels: ElrsChannels }
   | { Log: LogLine[] };
 
@@ -29,8 +29,14 @@ export interface Sensor {
 }
 
 export interface SensorCalibration {
-  gyro_calibration: [number, number, number];
-  accel_calibration: [number, number, number];
+  Data: {
+    gyro_calibration: [number, number, number];
+    accel_calibration: [number, number, number];
+  };
+  GyroProgress: {
+    samples: number;
+    seconds_remaining: number;
+  };
 }
 
 export type ElrsChannels = [

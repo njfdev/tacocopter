@@ -9,6 +9,7 @@ pub mod setup;
 pub mod tasks;
 pub mod tools;
 
+use ekv::flash::Flash;
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
@@ -47,13 +48,13 @@ async fn main(spawner: Spawner) {
     TcUsbLogger::init().unwrap();
 
     // setup the key-store db
-    setup_flash_store(p.FLASH).await;
+    setup_flash_store(p.FLASH, p.DMA_CH0).await;
 
-    TcStore::set(SensorCalibrationData {
-        gyro_biases: (-0.0356924, -0.0230041, -0.03341522),
-        accel_biases: (0.044174805, -0.063529054, 0.07425296),
-    })
-    .await;
+    // TcStore::set(SensorCalibrationData {
+    //     gyro_biases: (-0.0356924, -0.0230041, -0.03341522),
+    //     accel_biases: (0.044174805, -0.063529054, 0.07425296),
+    // })
+    // .await;
 
     let mut tc_devices = setup_peripherals(
         spawner.clone(),
@@ -99,6 +100,7 @@ async fn main(spawner: Spawner) {
     );
 
     let mut imu_process_freq = 1.0;
+
     loop {
         // blinking the onboard led can let us determine 2 pieces of important information without a debugger probe
         // 1. If the LED isn't blinking, the FC crashed
@@ -111,6 +113,11 @@ async fn main(spawner: Spawner) {
 
         blink_led(&mut tc_devices.status_led, imu_process_freq).await;
 
+        // TcStore::set(SensorCalibrationData {
+        //     gyro_biases: (-0.0356924, -0.0230041, -0.03341522),
+        //     accel_biases: (0.044174805, -0.063529054, 0.07425296),
+        // })
+        // .await;
         // info!("Data: {:?}", TcStore::get::<SensorCalibrationData>().await);
 
         // tc_println!("Voltage: {}V", voltage);

@@ -3,17 +3,23 @@ use embassy_rp::{
     peripherals::I2C1,
 };
 use embassy_time::Instant;
+use log::warn;
 use micromath::F32Ext;
 use mpu6050::Mpu6050;
 use nalgebra::{Quaternion, UnitQuaternion, Vector3};
+use tc_interface::{GyroCalibrationProgressData, SensorCalibrationType};
 
 use crate::{
     consts::{ACCEL_BIASES, GYRO_BIASES, UPDATE_LOOP_FREQUENCY, USB_LOGGER_RATE},
+    drivers::tc_store::{SensorCalibrationData, TcKeyValueStoreData, TcStore},
     global::{
-        IMU_FETCH_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL, IMU_RAW_SIGNAL, IMU_SIGNAL,
-        SHARED,
+        CalibrationSensorType, CALIBRATION_FEEDBACK_SIGNAL, IMU_FETCH_FREQUENCY_SIGNAL,
+        IMU_PROCESSOR_FREQUENCY_SIGNAL, IMU_RAW_SIGNAL, IMU_SIGNAL, SHARED,
+        START_CALIBRATION_SIGNAL,
     },
-    tools::{kalman::KalmanFilterQuat, yielding_timer::YieldingTimer},
+    tools::{
+        calibrators::imu::GyroCalibrator, kalman::KalmanFilterQuat, yielding_timer::YieldingTimer,
+    },
 };
 
 #[embassy_executor::task]
@@ -69,6 +75,8 @@ pub async fn mpu6050_processor_loop() {
 
     let mut start = Instant::now();
     let mut since_last = Instant::now();
+    let mut calibration_type: Option<CalibrationSensorType> = None;
+    let mut gyro_calibrator = GyroCalibrator::new();
     // let mut iterations = 0;
     loop {
         // while (((1_000_000.0 * iterations as f64) / (UPDATE_LOOP_FREQUENCY)) as i64)
@@ -88,6 +96,55 @@ pub async fn mpu6050_processor_loop() {
             .as_micros() as f32)
             / 1_000_000.0;
         since_last = ending;
+
+        // if calibration needs to occur, interrupt the loop early for calibration step
+        if START_CALIBRATION_SIGNAL.signaled() {
+            calibration_type = Some(START_CALIBRATION_SIGNAL.try_take().unwrap())
+        }
+        if calibration_type.is_some() {
+            match calibration_type.clone().unwrap() {
+                CalibrationSensorType::Gyro(settings) => {
+                    let bias_res = gyro_calibrator.process_data(gyro_data.into(), settings);
+                    if bias_res.is_ok() {
+                        calibration_type = None;
+                        // let mut current_calib = TcStore::get::<SensorCalibrationData>().await;
+                        let mut current_calib = SensorCalibrationData {
+                            gyro_biases: (0.0, 0.0, 0.0),
+                            accel_biases: (0.044174805, -0.063529054, 0.07425296),
+                        };
+                        current_calib.gyro_biases = bias_res.unwrap();
+                        TcStore::set(current_calib).await;
+                        {
+                            let mut shared = SHARED.lock().await;
+                            shared.calibration_data.gyro_calibration = bias_res.unwrap().into();
+                        }
+                        CALIBRATION_FEEDBACK_SIGNAL.signal(SensorCalibrationType::GyroFinished);
+                    } else {
+                        if Instant::now()
+                            .checked_duration_since(start)
+                            .unwrap()
+                            .as_millis()
+                            >= (1000.0 / USB_LOGGER_RATE) as u64
+                        {
+                            start = Instant::now();
+                            let progress = bias_res.unwrap_err();
+                            CALIBRATION_FEEDBACK_SIGNAL.signal(
+                                SensorCalibrationType::GyroProgress(GyroCalibrationProgressData {
+                                    seconds_remaining: progress.0,
+                                    samples: progress.1,
+                                }),
+                            );
+                        }
+                    }
+                    // skip over normal logic because the calibrator is only what matters now
+                    continue;
+                }
+                CalibrationSensorType::Accel => {
+                    warn!("Accelerometer calibration is not yet implemented...");
+                }
+            }
+        }
+
         kalman.update(
             Vector3::from_row_slice(&gyro_data),
             Vector3::from_row_slice(&accel_data),
@@ -151,16 +208,7 @@ pub async fn mpu6050_processor_loop() {
             }
             // iterations = 0;
             //info!("Estimated rotation: {:?}", rotation);
-
-            // should_start_gyro_calib = !shared.gyro_calibration_state.is_finished;
         }
-
-        // TODO: make gyro calibration work again
-        // // if need to start gyro calibration, do it
-        // if should_start_gyro_calib {
-        //     get_gyro_offsets(&mut mpu).await;
-        //     start = Instant::now();
-        // }
 
         // iterations += 1;
     }
