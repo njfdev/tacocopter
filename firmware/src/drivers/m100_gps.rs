@@ -8,7 +8,7 @@ use embassy_rp::{
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch::Sender};
 use embassy_time::Instant;
 use embedded_io_async::Read;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use static_cell::StaticCell;
 
 use crate::{global::GPS_SIGNAL, tools::yielding_timer::YieldingTimer};
@@ -71,11 +71,12 @@ pub async fn init_gps(
     let (tx, rx) = uart.split();
 
     spawner.spawn(reader(rx)).unwrap();
+    spawner.spawn(processor()).unwrap();
 
     tx
 }
 
-const BUF_LENGTH: usize = 1024;
+const BUF_LENGTH: usize = 8192;
 
 #[embassy_executor::task]
 async fn reader(mut rx: BufferedUartRx) {
@@ -94,20 +95,20 @@ async fn reader(mut rx: BufferedUartRx) {
                     current_packet[current_len..(current_len + n)].copy_from_slice(&buf[..n]);
                     current_len += n;
                 } else {
-                    warn!("GPS UART Buffer is too full... Dropping {} bytes.", n);
+                    warn!(
+                        "GPS UART Buffer is too full... Resetting buffer and dropping {} bytes.",
+                        n + current_len
+                    );
+                    current_len = 0;
                 }
             }
             Ok(0) => {
                 debug!("GPS Read 0 bytes");
-                YieldingTimer::after_millis(100).await;
             }
             Err(e) => {
                 error!("GPS Read error: {:?}", e);
-                YieldingTimer::after_millis(100).await;
             }
-            _ => {
-                YieldingTimer::after_millis(100).await;
-            }
+            _ => {}
         }
 
         if current_len < 2 {
@@ -155,6 +156,9 @@ async fn reader(mut rx: BufferedUartRx) {
         }
     }
 }
+
+#[embassy_executor::task]
+async fn processor() {}
 
 async fn handle_packet(
     data: &[u8],

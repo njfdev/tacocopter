@@ -22,20 +22,16 @@ pub async fn elrs_receive_handler(mut rx: BufferedUartRx) {
                     current_packet[current_len..(current_len + n)].copy_from_slice(&buf[..n]);
                     current_len += n;
                 } else {
-                    warn!("Elrs UART Buffer is too full... Dropping {} bytes.", n);
+                    warn!("ELRS UART Buffer is too full... Dropping {} bytes.", n);
                 }
             }
             Ok(0) => {
-                debug!("Read 0 bytes");
-                YieldingTimer::after_millis(100).await;
+                debug!("ELRS Read 0 bytes");
             }
             Err(e) => {
-                debug!("Read error: {:?}", e);
-                YieldingTimer::after_millis(100).await;
+                debug!("ELRS Read error: {:?}", e);
             }
-            _ => {
-                YieldingTimer::after_millis(100).await;
-            }
+            _ => {}
         }
         trace!(
             "ELRS Packet ({}): {:2x?}",
