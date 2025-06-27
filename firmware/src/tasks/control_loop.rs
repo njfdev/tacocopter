@@ -102,11 +102,15 @@ pub async fn control_loop() {
             && (current_altitude.is_some() || altitude_recv.unwrap().0.is_some())
         {
             let altitude_data = altitude_recv.unwrap();
-            if current_altitude.is_none() {
-                target_altitude = altitude_data.0.unwrap();
+            if altitude_data.0.is_some() && altitude_data.1.is_some() {
+                if current_altitude.is_none() {
+                    target_altitude = altitude_data.0.unwrap();
+                }
+                current_altitude = altitude_data.0;
+                current_vertical_speed = altitude_data.1.unwrap();
+            } else {
+                current_altitude = None;
             }
-            current_altitude = altitude_data.0;
-            current_vertical_speed = altitude_data.1.unwrap();
             // current_vertical_speed = if last_altitude.is_some() {
             //     (current_altitude.unwrap() - last_altitude.unwrap()) * dt
             // } else {
