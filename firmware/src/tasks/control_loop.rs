@@ -42,13 +42,13 @@ pub async fn control_loop() {
     pid_yaw.i(0.0001, 0.1);
     pid_yaw.d(0.0005, 0.1);
     let mut pid_roll = Pid::new(0.0, 0.25);
-    pid_roll.p(0.0011, 0.5);
-    pid_roll.i(0.000014, 0.1);
-    pid_roll.d(0.00013, 0.1);
+    pid_roll.p(0.0012, 0.5);
+    pid_roll.i(0.00002, 0.1);
+    pid_roll.d(0.000135, 0.1);
     let mut pid_pitch = Pid::new(0.0, 0.25);
-    pid_pitch.p(0.0011, 0.5);
-    pid_pitch.i(0.000014, 0.1);
-    pid_pitch.d(0.00013, 0.1);
+    pid_pitch.p(0.0012, 0.5);
+    pid_pitch.i(0.00002, 0.1);
+    pid_pitch.d(0.000135, 0.1);
 
     // vertical pid
     let mut pid_altitude = Pid::new(0.0, 2.0); // up to 2 m/s corrections
