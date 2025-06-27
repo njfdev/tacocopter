@@ -80,9 +80,9 @@ ekv = { version = "1.0.0", git = "https://github.com/embassy-rs/ekv", rev = "68b
 embassy-sync = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt"] }
 
 
-[profile.release]
+[profile.dev]
 debug = 2
 
-[profile.dev]
+[profile.release]
 lto = true
 opt-level = "z"

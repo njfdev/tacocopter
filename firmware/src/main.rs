@@ -28,11 +28,18 @@ use crate::setup::tasks::{spawn_tasks, TaskPeripherals};
 use crate::setup::usb::setup_usb_interface;
 use crate::tools::blinker::blink_led;
 
-use {defmt_rtt as _, panic_probe as _};
+use defmt_rtt as _; //, panic_probe as _};
 
 #[link_section = ".start_block"]
 #[used]
 pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
+
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    defmt::error!("Panic: {}", info);
+    cortex_m::asm::bkpt(); // <- stops in debugger
+    loop {}
+}
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -110,7 +117,6 @@ async fn main(spawner: Spawner) {
             // decrease the frequency by a factor of 50 to better see the result
             imu_process_freq = new_imu_process_freq.unwrap() / 50.0;
         }
-
         blink_led(&mut tc_devices.status_led, imu_process_freq).await;
 
         // TcStore::set(SensorCalibrationData {
