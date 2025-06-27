@@ -75,20 +75,27 @@ pub async fn init_gps(
     tx
 }
 
+const BUF_LENGTH: usize = 1024;
+
 #[embassy_executor::task]
 async fn reader(mut rx: BufferedUartRx) {
     debug!("GPS Reading...");
-    let mut current_packet: [u8; 8192] = [0; 8192];
+    let mut current_packet: [u8; BUF_LENGTH] = [0; BUF_LENGTH];
     let mut current_len = 0;
     let mut time_since_last = Instant::now();
     let mut gps_sender = GPS_SIGNAL.sender();
     loop {
-        let mut buf = [0; 8192];
+        let mut buf = [0; BUF_LENGTH];
         match rx.read(&mut buf).await {
             Ok(n) if n > 0 => {
                 //info!("RX first {} bytes: {:2x?}", n, &buf[..n]);
-                current_packet[current_len..(current_len + n)].copy_from_slice(&buf[..n]);
-                current_len += n;
+                if n + current_len <= BUF_LENGTH {
+                    defmt::info!("Buf Len: {}, Set End: {}", BUF_LENGTH, current_len + n);
+                    current_packet[current_len..(current_len + n)].copy_from_slice(&buf[..n]);
+                    current_len += n;
+                } else {
+                    warn!("GPS UART Buffer is too full... Dropping {} bytes.", n);
+                }
             }
             Ok(0) => {
                 debug!("GPS Read 0 bytes");
@@ -110,7 +117,7 @@ async fn reader(mut rx: BufferedUartRx) {
         // process packet
         if current_packet[0] != 0xb5 || current_packet[1] != 0x62 {
             let new_starting;
-            for (i, byte) in current_packet.iter().enumerate() {
+            for (i, byte) in current_packet[..current_len].iter().enumerate() {
                 if *byte == 0xb5 {
                     new_starting = i;
                     current_packet.copy_within(new_starting.., 0);

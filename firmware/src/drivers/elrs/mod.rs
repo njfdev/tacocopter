@@ -160,7 +160,13 @@ impl Elrs {
 
     // if deadzone is passed as a value, then the output is scaled to -1.0 to 1.0, otherwise it is scaled from 0.0 to 1.0
     pub fn elrs_input_to_percent(input: u16, deadzone_opt: Option<f32>) -> f32 {
-        let input_percent = ((input - 172) as f32) / 1638.0;
+        let input_percent = if input < 172 {
+            0.0
+        } else if input > 1810 {
+            1.0
+        } else {
+            ((input - 172) as f32) / 1638.0
+        };
 
         if deadzone_opt.is_none() {
             return input_percent.clamp(0.0, 1.0);

@@ -6,17 +6,24 @@ use embassy_rp::uart::BufferedUartRx;
 use embedded_io_async::Read;
 use log::{debug, error, trace, warn};
 
+const BUF_LENGTH: usize = 1024;
+
 #[embassy_executor::task]
 pub async fn elrs_receive_handler(mut rx: BufferedUartRx) {
-    let mut current_packet: [u8; 1024] = [0; 1024];
+    let mut current_packet: [u8; BUF_LENGTH] = [0; BUF_LENGTH];
     let mut current_len = 0;
     loop {
-        let mut buf = [0; 1024];
+        let mut buf = [0; BUF_LENGTH];
         match rx.read(&mut buf).await {
             Ok(n) if n > 0 => {
                 trace!("ELRS RX first {} bytes: {:2x?}", n, &buf[..n]);
-                current_packet[current_len..(current_len + n)].copy_from_slice(&buf[..n]);
-                current_len += n;
+                if n + current_len <= BUF_LENGTH {
+                    defmt::info!("Buf Len: {}, Set End: {}", BUF_LENGTH, current_len + n);
+                    current_packet[current_len..(current_len + n)].copy_from_slice(&buf[..n]);
+                    current_len += n;
+                } else {
+                    warn!("Elrs UART Buffer is too full... Dropping {} bytes.", n);
+                }
             }
             Ok(0) => {
                 debug!("Read 0 bytes");
