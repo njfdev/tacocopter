@@ -1,10 +1,13 @@
 use core::{
+    cell::Cell,
     fmt::Error,
     str::FromStr,
-    sync::atomic::{AtomicU16, Ordering},
+    sync::atomic::{AtomicU16, AtomicU32, Ordering},
 };
-
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
+use embassy_sync::blocking_mutex::{
+    raw::{CriticalSectionRawMutex, RawMutex},
+    Mutex,
+};
 use format_no_std::show;
 use heapless::String;
 use log::{Level, SetLoggerError};
@@ -15,7 +18,7 @@ use crate::global::LOG_CHANNEL;
 pub struct TcUsbLogger;
 
 static LOGGER: TcUsbLogger = TcUsbLogger;
-static LOG_ID: AtomicU16 = AtomicU16::new(0);
+static LOG_ID: Mutex<CriticalSectionRawMutex, Cell<u16>> = Mutex::new(Cell::new(0));
 
 impl TcUsbLogger {
     pub fn init() -> Result<(), SetLoggerError> {
@@ -27,7 +30,12 @@ impl TcUsbLogger {
         let mut start = 0;
         let len = text_string.len();
         let mut part_id = 0;
-        let log_id = LOG_ID.fetch_add(1, Ordering::SeqCst);
+
+        let log_id = LOG_ID.lock(|cell| {
+            let id = cell.get();
+            cell.set(id.wrapping_add(1));
+            id
+        });
 
         while start < len {
             let mut end = core::cmp::min(start + LOG_SEGMENT_SIZE, len);
@@ -44,7 +52,7 @@ impl TcUsbLogger {
 
             if part.is_ok() {
                 let _ = LOG_CHANNEL.try_send(LogData {
-                    log_id,
+                    log_id: log_id as u16,
                     log_part_index: part_id,
                     log_level: level,
                     text: part.unwrap(),
