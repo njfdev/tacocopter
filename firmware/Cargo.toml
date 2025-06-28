@@ -74,7 +74,7 @@ kfilter = "0.4.0"
 uom = { version = "0.36", default-features = false, features = ["autoconvert", "f32", "f64", "si"] }
 dshot-pio = { git = "https://github.com/njfdev/dshot-pio.git", features = ["embassy-rp"] }
 format_no_std = "1.2.0"
-ekv = { version = "1.0.0", git = "https://github.com/embassy-rs/ekv", rev = "68b27c52eb587ba883f39f3a8000f671c858f587", features = ["crc", "align-4", "page-size-4096", "max-page-count-512"]  }
+sequential-storage = { version = "4.0.3", features = ["heapless"] }
 
 [patch.crates-io]
 embassy-sync = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt"] }

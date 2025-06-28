@@ -1,6 +1,9 @@
 use core::cell::OnceCell;
 
-use ekv::Database;
+use embassy_rp::{
+    flash::{Async, Flash},
+    peripherals::FLASH,
+};
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, lazy_lock::LazyLock,
     mutex::Mutex, once_lock::OnceLock, signal::Signal, watch::Watch,
@@ -13,7 +16,9 @@ use tc_interface::{
     SensorCalibrationType, SensorData, StartGyroCalibrationData, StateData,
 };
 
-use crate::{consts::UPDATE_LOOP_FREQUENCY, drivers::m100_gps::GPSPayload, setup::flash::DbType};
+use crate::{
+    consts::UPDATE_LOOP_FREQUENCY, drivers::m100_gps::GPSPayload, setup::flash::FlashType,
+};
 
 #[derive(Clone)]
 pub enum CalibrationSensorType {
@@ -102,5 +107,5 @@ pub static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(Shar
     elrs_channels: [0; 16],
 });
 
-// key value store database
-pub static DATABASE: OnceLock<DbType> = OnceLock::new();
+// store access to Flash behind a mutex
+pub static FLASH_MUTEX: OnceLock<Mutex<CriticalSectionRawMutex, FlashType>> = OnceLock::new();

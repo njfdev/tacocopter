@@ -502,15 +502,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
-name = "ekv"
-version = "1.0.0"
-source = "git+https://github.com/embassy-rs/ekv?rev=68b27c52eb587ba883f39f3a8000f671c858f587#68b27c52eb587ba883f39f3a8000f671c858f587"
-dependencies = [
- "embassy-sync",
- "heapless 0.8.0",
-]
-
-[[package]]
 name = "embassy-embedded-hal"
 version = "0.3.0"
 source = "git+https://github.com/embassy-rs/embassy?rev=206a324cf4d612122356fb350b4a3b56391d6f20#206a324cf4d612122356fb350b4a3b56391d6f20"
@@ -910,7 +901,6 @@ dependencies = [
  "display-interface",
  "display-interface-spi",
  "dshot-pio",
- "ekv",
  "embassy-embedded-hal",
  "embassy-executor",
  "embassy-futures",
@@ -948,6 +938,7 @@ dependencies = [
  "postcard",
  "rand",
  "ryu",
+ "sequential-storage",
  "serde",
  "serde-json-core",
  "smart-leds 0.3.0",
@@ -2042,6 +2033,16 @@ name = "semver-parser"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
+
+[[package]]
+name = "sequential-storage"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "516ed74ad8268ec0d78c574af8fc7e09a9c3a0df63c7692c588a10d7097dea3b"
+dependencies = [
+ "embedded-storage-async",
+ "heapless 0.8.0",
+]
 
 [[package]]
 name = "serde"
