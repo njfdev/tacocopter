@@ -76,15 +76,16 @@ uom = { version = "0.36", default-features = false, features = ["autoconvert", "
 dshot-pio = { git = "https://github.com/njfdev/dshot-pio.git", features = ["embassy-rp"] }
 format_no_std = "1.2.0"
 sequential-storage = { version = "4.0.3", features = ["heapless"] }
-async-oneshot = "0.5.9"
 
 [patch.crates-io]
 embassy-sync = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt"] }
+# custom patch to make the error type derive Clone
+sequential-storage = { git = "https://github.com/njfdev/sequential-storage", branch = "patch-1" }
 
-
-[profile.dev]
+# this is essential, if optimized by the compiler some unsafe lifetime handling will break
+[profile.release]
 debug = 2
 
-[profile.release]
+[profile.dev]
 lto = true
 opt-level = "z"

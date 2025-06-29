@@ -3,26 +3,29 @@
  * postcard and structs rather than raw bytes or byte strings).
  */
 
-use core::{cell::OnceCell, str::FromStr};
+use core::{cell::OnceCell, mem::transmute, str::FromStr};
 
-use async_oneshot::oneshot;
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
 use embassy_rp::flash::Flash;
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex,
-    channel::Channel,
-    signal::{self, Signal}, watch::Watch,
+    channel::{self, Channel},
+    signal::{self, Signal},
+    watch::{Sender, Watch},
 };
+use embassy_time::Timer;
 use heapless::{pool::arc::Arc, String};
 use heapless_7::Vec;
 use log::{error, info, warn};
 use postcard::from_bytes;
+use rand::Rng;
 use sequential_storage::{
     cache::NoCache,
     map::{fetch_item, store_item},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use static_cell::StaticCell;
 
 use crate::{
     global::FLASH_MUTEX,
@@ -35,10 +38,13 @@ static VALUE_BUFFER_SIZE: usize = 1024;
 
 static MAP_SIZE: u32 = 0x10000;
 
-struct Request<T, R: Clone> {
+struct Request<T, R> {
     input: T,
-    responder: Watch<CriticalSectionRawMutex, R, 1>,
+    responder: RawChannelPtr<R>,
 }
+
+struct RawChannelPtr<R>(*mut Channel<CriticalSectionRawMutex, R, 1>);
+unsafe impl<R> Send for RawChannelPtr<R> {}
 
 enum FlashRequest {
     Set(
@@ -92,12 +98,18 @@ impl TcStore {
     pub async fn set<T: TcKeyValueStoreData>(data: T) {
         let data_bytes: Vec<u8, VALUE_BUFFER_SIZE> = postcard::to_vec(&data).unwrap();
 
-        let res_cell = OnceCell::new();
-        FLASH_CHANNEL.send(FlashRequest::Set(Request {
-            input: (T::key(), data_bytes),
-            responder: res_cell.,
-        }));
-        let res = r.await.unwrap();
+        let mut channel: Channel<
+            CriticalSectionRawMutex,
+            Result<(), sequential_storage::Error<embassy_rp::flash::Error>>,
+            1,
+        > = Channel::new();
+        FLASH_CHANNEL
+            .send(FlashRequest::Set(Request {
+                input: (T::key(), data_bytes),
+                responder: RawChannelPtr(&mut channel as *mut _),
+            }))
+            .await;
+        let res = channel.receive().await;
 
         if res.is_err() {
             error!(
@@ -109,12 +121,21 @@ impl TcStore {
     }
 
     pub async fn get<T: TcKeyValueStoreData>() -> T {
-        let (s, r) = oneshot();
-        FLASH_CHANNEL.send(FlashRequest::Get(Request {
-            input: T::key(),
-            responder: s,
-        }));
-        let res = r.await.unwrap();
+        let mut channel: Channel<
+            CriticalSectionRawMutex,
+            Result<
+                Option<Vec<u8, VALUE_BUFFER_SIZE>>,
+                sequential_storage::Error<embassy_rp::flash::Error>,
+            >,
+            1,
+        > = Channel::new();
+        FLASH_CHANNEL
+            .send(FlashRequest::Get(Request {
+                input: T::key(),
+                responder: RawChannelPtr(&mut channel as *mut _),
+            }))
+            .await;
+        let res = channel.receive().await;
 
         match res {
             Ok(val_res) => {
@@ -154,7 +175,9 @@ async fn flash_handler(mut flash: FlashType) {
                     &params.input.1.as_slice(),
                 )
                 .await;
-                params.responder.send(res);
+                unsafe {
+                    (*params.responder.0).send(res).await;
+                }
             }
             FlashRequest::Get(mut params) => {
                 let mut buffer = [0_u8; VALUE_BUFFER_SIZE];
@@ -169,17 +192,25 @@ async fn flash_handler(mut flash: FlashType) {
 
                 if res.is_ok() {
                     if res.as_ref().unwrap().is_some() {
-                        params.responder.send(Ok(Some(
-                            Vec::<u8, VALUE_BUFFER_SIZE>::from_slice(
-                                res.unwrap().unwrap_or_default(),
-                            )
-                            .unwrap(),
-                        )));
+                        unsafe {
+                            (*params.responder.0)
+                                .send(Ok(Some(
+                                    Vec::<u8, VALUE_BUFFER_SIZE>::from_slice(
+                                        res.unwrap().unwrap_or_default(),
+                                    )
+                                    .unwrap(),
+                                )))
+                                .await;
+                        }
                     } else {
-                        params.responder.send(Ok(None));
+                        unsafe {
+                            (*params.responder.0).send(Ok(None)).await;
+                        }
                     }
                 } else {
-                    params.responder.send(Err(res.unwrap_err()));
+                    unsafe {
+                        (*params.responder.0).send(Err(res.unwrap_err())).await;
+                    }
                 }
             }
         }
