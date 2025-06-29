@@ -3,7 +3,7 @@ use embassy_rp::{
     peripherals::I2C1,
 };
 use embassy_time::Instant;
-use log::warn;
+use log::{info, warn};
 use micromath::F32Ext;
 use mpu6050::Mpu6050;
 use nalgebra::{Quaternion, UnitQuaternion, Vector3};
@@ -107,11 +107,7 @@ pub async fn mpu6050_processor_loop() {
                     let bias_res = gyro_calibrator.process_data(gyro_data.into(), settings);
                     if bias_res.is_ok() {
                         calibration_type = None;
-                        // let mut current_calib = TcStore::get::<SensorCalibrationData>().await;
-                        let mut current_calib = SensorCalibrationData {
-                            gyro_biases: (0.0, 0.0, 0.0),
-                            accel_biases: (0.044174805, -0.063529054, 0.07425296),
-                        };
+                        let mut current_calib = TcStore::get::<SensorCalibrationData>().await;
                         current_calib.gyro_biases = bias_res.unwrap();
                         TcStore::set(current_calib).await;
                         {

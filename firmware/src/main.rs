@@ -54,7 +54,7 @@ async fn main(spawner: Spawner) {
     TcUsbLogger::init().unwrap();
 
     // setup the key-store db
-    setup_flash_store(p.FLASH, p.DMA_CH0).await;
+    setup_flash_store(&spawner, p.FLASH, p.DMA_CH0).await;
 
     TcStore::set(SensorCalibrationData {
         gyro_biases: (-0.0356924, -0.0230041, -0.03341522),
