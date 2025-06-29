@@ -13,9 +13,9 @@ use crate::{
     consts::{ACCEL_BIASES, GYRO_BIASES, UPDATE_LOOP_FREQUENCY, USB_LOGGER_RATE},
     drivers::tc_store::{SensorCalibrationData, TcKeyValueStoreData, TcStore},
     global::{
-        CalibrationSensorType, CALIBRATION_FEEDBACK_SIGNAL, IMU_FETCH_FREQUENCY_SIGNAL,
-        IMU_PROCESSOR_FREQUENCY_SIGNAL, IMU_RAW_SIGNAL, IMU_SIGNAL, SHARED,
-        START_CALIBRATION_SIGNAL,
+        CalibrationSensorType, CALIBRATION_FEEDBACK_SIGNAL, IMU_CALIB_SIGNAL,
+        IMU_FETCH_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL, IMU_RAW_SIGNAL, IMU_SIGNAL,
+        SHARED, START_CALIBRATION_SIGNAL,
     },
     tools::{
         calibrators::imu::GyroCalibrator, kalman::KalmanFilterQuat, yielding_timer::YieldingTimer,
@@ -26,6 +26,7 @@ use crate::{
 pub async fn mpu6050_fetcher_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
     let mut last_loop = Instant::now();
     let mut last_log = Instant::now();
+    let mut sensor_calibration = Default::default();
     loop {
         let new_since_last = YieldingTimer::after_micros(
             ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) as u64)
@@ -36,13 +37,18 @@ pub async fn mpu6050_fetcher_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
         let frequency = 1_000_000.0 / last_loop.elapsed().as_micros() as f32;
         last_loop = new_since_last;
 
+        let calib_res = IMU_CALIB_SIGNAL.try_take();
+        if calib_res.is_some() {
+            sensor_calibration = calib_res.unwrap();
+        }
+
         let gyro_data: [f32; 3] = correct_biases(
             mpu.get_gyro().unwrap().as_slice().try_into().unwrap(),
-            GYRO_BIASES,
+            sensor_calibration.gyro_calibration,
         );
         let accel_data: [f32; 3] = correct_biases(
             mpu.get_acc().unwrap().as_slice().try_into().unwrap(),
-            ACCEL_BIASES,
+            sensor_calibration.accel_calibration,
         );
 
         IMU_RAW_SIGNAL.signal((gyro_data, accel_data));
@@ -109,11 +115,13 @@ pub async fn mpu6050_processor_loop() {
                         calibration_type = None;
                         let mut current_calib = TcStore::get::<SensorCalibrationData>().await;
                         current_calib.gyro_biases = bias_res.unwrap();
-                        TcStore::set(current_calib).await;
+                        TcStore::set(current_calib.clone()).await;
                         {
                             let mut shared = SHARED.lock().await;
-                            shared.calibration_data.gyro_calibration = bias_res.unwrap().into();
+                            shared.calibration_data.gyro_calibration =
+                                current_calib.gyro_biases.into();
                         }
+                        IMU_CALIB_SIGNAL.signal(current_calib.into());
                         CALIBRATION_FEEDBACK_SIGNAL.signal(SensorCalibrationType::GyroFinished);
                     } else {
                         if Instant::now()

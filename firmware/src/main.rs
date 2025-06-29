@@ -56,11 +56,11 @@ async fn main(spawner: Spawner) {
     // setup the key-store db
     setup_flash_store(&spawner, p.FLASH, p.DMA_CH0).await;
 
-    // TcStore::set(SensorCalibrationData {
-    //     gyro_biases: (-0.0356924, -0.0230041, -0.03341522),
-    //     accel_biases: (0.044174805, -0.063529054, 0.07425296),
-    // })
-    // .await;
+    TcStore::set(SensorCalibrationData {
+        gyro_biases: (-0.0356924, -0.0230041, -0.03341522),
+        accel_biases: (0.044174805, -0.063529054, 0.07425296),
+    })
+    .await;
 
     let mut tc_devices = setup_peripherals(
         spawner.clone(),

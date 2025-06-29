@@ -3,7 +3,7 @@
  * postcard and structs rather than raw bytes or byte strings).
  */
 
-use core::{cell::OnceCell, mem::transmute, str::FromStr};
+use core::{cell::OnceCell, fmt::Debug, mem::transmute, str::FromStr};
 
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
@@ -22,6 +22,7 @@ use postcard::from_bytes;
 use rand::Rng;
 use sequential_storage::{
     cache::NoCache,
+    erase_all,
     map::{fetch_item, store_item},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -66,11 +67,11 @@ enum FlashRequest {
 
 static FLASH_CHANNEL: Channel<CriticalSectionRawMutex, FlashRequest, 128> = Channel::new();
 
-pub trait TcKeyValueStoreData: Serialize + DeserializeOwned + Default {
+pub trait TcKeyValueStoreData: Serialize + DeserializeOwned + Default + Clone + Debug {
     fn key() -> String<16>;
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct SensorCalibrationData {
     pub accel_biases: (f32, f32, f32),
     pub gyro_biases: (f32, f32, f32),
@@ -79,6 +80,15 @@ pub struct SensorCalibrationData {
 impl TcKeyValueStoreData for SensorCalibrationData {
     fn key() -> String<16> {
         String::from_str("SENSOR_CALIB").unwrap()
+    }
+}
+
+impl Into<tc_interface::SensorCalibrationData> for SensorCalibrationData {
+    fn into(self) -> tc_interface::SensorCalibrationData {
+        tc_interface::SensorCalibrationData {
+            accel_calibration: self.accel_biases.into(),
+            gyro_calibration: self.gyro_biases.into(),
+        }
     }
 }
 
@@ -91,7 +101,11 @@ pub struct TcStore;
 
 // TODO: add better error handling so DB issues won't mess up a flight
 impl TcStore {
-    pub async fn init(spawner: &Spawner, flash: FlashType) {
+    pub async fn init(spawner: &Spawner, mut flash: FlashType) {
+        let config_start = unsafe { &__config_start as *const u32 as u32 } - 0x10000000;
+        erase_all(&mut flash, (config_start)..(config_start + MAP_SIZE))
+            .await
+            .unwrap();
         spawner.spawn(flash_handler(flash)).unwrap();
     }
 
@@ -111,13 +125,15 @@ impl TcStore {
             .await;
         let res = channel.receive().await;
 
-        if res.is_err() {
-            error!(
-                "Error setting value for {}: {:?}",
-                T::key(),
-                res.unwrap_err()
-            );
-        }
+        // if res.is_err() {
+        //     error!(
+        //         "Error setting value for {}: {:?}",
+        //         T::key(),
+        //         res.unwrap_err()
+        //     );
+        // } else {
+        //     info!("Saved");
+        // }
     }
 
     pub async fn get<T: TcKeyValueStoreData>() -> T {
@@ -149,7 +165,7 @@ impl TcStore {
             Err(e) => match e {
                 _ => {
                     error!("Error occurred retrieving value: {:?}", e);
-                    panic!()
+                    Default::default()
                 }
             },
         }

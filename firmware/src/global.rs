@@ -62,6 +62,8 @@ pub static CURRENT_ALTITUDE: Watch<CriticalSectionRawMutex, (Option<f32>, Option
 pub static ARMED_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
 // first 3 f32s are the gyroscope data, the second are the accelerometer data
 pub static IMU_RAW_SIGNAL: Signal<CriticalSectionRawMutex, ([f32; 3], [f32; 3])> = Signal::new();
+// calibration updates
+pub static IMU_CALIB_SIGNAL: Signal<CriticalSectionRawMutex, SensorCalibrationData> = Signal::new();
 // In celsius
 pub static TEMPERATURE: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 

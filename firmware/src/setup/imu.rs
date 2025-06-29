@@ -5,11 +5,11 @@ use embassy_rp::{
 };
 use embassy_time::Delay;
 use mpu6050::Mpu6050;
-use tc_interface::SensorCalibrationData;
 
 use crate::{
     consts::{ACCEL_BIASES, GYRO_BIASES},
-    global::SHARED,
+    drivers::tc_store::{SensorCalibrationData, TcStore},
+    global::{IMU_CALIB_SIGNAL, SHARED},
 };
 
 bind_interrupts!(struct I2C1Irqs {
@@ -32,13 +32,16 @@ pub async fn setup_imu(
     // calibrate_accel(&mut mpu, 10.0).await;
     // calibrate_gyro(&mut mpu, 10.0).await;
 
-    let sensor_data = SensorCalibrationData {
-        accel_calibration: ACCEL_BIASES, //get_accel_offsets(&mut mpu, 10.0).await,
-        gyro_calibration: GYRO_BIASES,
-    };
+    let sensor_data: tc_interface::SensorCalibrationData =
+        TcStore::get::<SensorCalibrationData>().await.into();
+    // SensorCalibrationData {
+    //     accel_calibration: ACCEL_BIASES, //get_accel_offsets(&mut mpu, 10.0).await,
+    //     gyro_calibration: GYRO_BIASES,
+    // };
     {
         let mut shared = SHARED.lock().await;
-        shared.calibration_data = sensor_data;
+        shared.calibration_data = sensor_data.clone();
     }
+    IMU_CALIB_SIGNAL.signal(sensor_data);
     mpu
 }
