@@ -3,7 +3,12 @@
  * postcard and structs rather than raw bytes or byte strings).
  */
 
-use core::{cell::OnceCell, fmt::Debug, mem::transmute, str::FromStr};
+use core::{
+    cell::{Cell, OnceCell},
+    fmt::Debug,
+    mem::transmute,
+    str::FromStr,
+};
 
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
@@ -11,6 +16,7 @@ use embassy_rp::flash::Flash;
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex,
     channel::{self, Channel},
+    mutex::Mutex,
     signal::{self, Signal},
     watch::{Sender, Watch},
 };
@@ -39,24 +45,25 @@ static VALUE_BUFFER_SIZE: usize = 1024;
 
 static MAP_SIZE: u32 = 0x10000;
 
-struct Request<T, R> {
-    input: T,
-    responder: RawChannelPtr<R>,
+#[derive(Clone)]
+struct FlashInterface<T> {
+    id: usize,
+    data: T,
 }
 
 struct RawChannelPtr<R>(*mut Channel<CriticalSectionRawMutex, R, 1>);
 unsafe impl<R> Send for RawChannelPtr<R> {}
 
 enum FlashRequest {
-    Set(
-        Request<
-            (String<16>, Vec<u8, VALUE_BUFFER_SIZE>),
-            Result<(), sequential_storage::Error<embassy_rp::flash::Error>>,
-        >,
-    ),
+    Set(FlashInterface<(String<16>, Vec<u8, VALUE_BUFFER_SIZE>)>),
+    Get(FlashInterface<String<16>>),
+}
+
+#[derive(Clone)]
+enum FlashResponse {
+    Set(FlashInterface<Result<(), sequential_storage::Error<embassy_rp::flash::Error>>>),
     Get(
-        Request<
-            String<16>,
+        FlashInterface<
             Result<
                 Option<Vec<u8, VALUE_BUFFER_SIZE>>,
                 sequential_storage::Error<embassy_rp::flash::Error>,
@@ -65,7 +72,9 @@ enum FlashRequest {
     ),
 }
 
-static FLASH_CHANNEL: Channel<CriticalSectionRawMutex, FlashRequest, 128> = Channel::new();
+static REQ_ID: Mutex<CriticalSectionRawMutex, Cell<usize>> = Mutex::new(Cell::new(0));
+static FLASH_REQ_CHANNEL: Channel<CriticalSectionRawMutex, FlashRequest, 128> = Channel::new();
+static FLASH_RES_WATCH: Watch<CriticalSectionRawMutex, FlashResponse, 128> = Watch::new();
 
 pub trait TcKeyValueStoreData: Serialize + DeserializeOwned + Default + Clone + Debug {
     fn key() -> String<16>;
@@ -109,65 +118,85 @@ impl TcStore {
         spawner.spawn(flash_handler(flash)).unwrap();
     }
 
+    async fn get_req_id() -> usize {
+        let req_id_mutex = REQ_ID.lock().await;
+        let req_id = req_id_mutex.get();
+        req_id_mutex.set(req_id + 1);
+        req_id
+    }
+
     pub async fn set<T: TcKeyValueStoreData>(data: T) {
         let data_bytes: Vec<u8, VALUE_BUFFER_SIZE> = postcard::to_vec(&data).unwrap();
 
-        let mut channel: Channel<
-            CriticalSectionRawMutex,
-            Result<(), sequential_storage::Error<embassy_rp::flash::Error>>,
-            1,
-        > = Channel::new();
-        FLASH_CHANNEL
-            .send(FlashRequest::Set(Request {
-                input: (T::key(), data_bytes),
-                responder: RawChannelPtr(&mut channel as *mut _),
+        let req_id = Self::get_req_id().await;
+        FLASH_REQ_CHANNEL
+            .send(FlashRequest::Set(FlashInterface {
+                id: req_id,
+                data: (T::key(), data_bytes),
             }))
             .await;
-        let res = channel.receive().await;
-
-        // if res.is_err() {
-        //     error!(
-        //         "Error setting value for {}: {:?}",
-        //         T::key(),
-        //         res.unwrap_err()
-        //     );
-        // } else {
-        //     info!("Saved");
-        // }
+        let mut recv = FLASH_RES_WATCH.receiver().unwrap();
+        let mut res = recv.changed().await;
+        loop {
+            match res.clone() {
+                FlashResponse::Set(interface) => {
+                    if interface.id == req_id {
+                        if interface.data.is_err() {
+                            error!(
+                                "Error setting value for {}: {:?}",
+                                T::key(),
+                                interface.data.unwrap_err()
+                            );
+                        } else {
+                            info!("Saved");
+                        }
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            res = recv.changed().await;
+        }
     }
 
     pub async fn get<T: TcKeyValueStoreData>() -> T {
-        let mut channel: Channel<
-            CriticalSectionRawMutex,
-            Result<
-                Option<Vec<u8, VALUE_BUFFER_SIZE>>,
-                sequential_storage::Error<embassy_rp::flash::Error>,
-            >,
-            1,
-        > = Channel::new();
-        FLASH_CHANNEL
-            .send(FlashRequest::Get(Request {
-                input: T::key(),
-                responder: RawChannelPtr(&mut channel as *mut _),
+        let req_id = Self::get_req_id().await;
+        FLASH_REQ_CHANNEL
+            .send(FlashRequest::Get(FlashInterface {
+                id: req_id,
+                data: T::key(),
             }))
             .await;
-        let res = channel.receive().await;
+        let mut recv = FLASH_RES_WATCH.receiver().unwrap();
+        let mut res = recv.changed().await;
+        loop {
+            match res.clone() {
+                FlashResponse::Get(interface) => {
+                    if interface.id == req_id {
+                        match interface.data {
+                            Ok(val_res) => {
+                                if val_res.is_some() {
+                                    return from_bytes::<T>(val_res.unwrap().as_slice()).unwrap();
+                                } else {
+                                    warn!(
+                                        "No value found for key {}, returning default...",
+                                        &T::key()
+                                    );
+                                }
+                            }
+                            Err(e) => match e {
+                                _ => {
+                                    error!("Error occurred retrieving value: {:?}", e);
+                                }
+                            },
+                        }
+                    }
 
-        match res {
-            Ok(val_res) => {
-                if val_res.is_some() {
-                    from_bytes::<T>(val_res.unwrap().as_slice()).unwrap()
-                } else {
-                    warn!("No value found for key {}, returning default...", &T::key());
-                    Default::default()
+                    return Default::default();
                 }
+                _ => {}
             }
-            Err(e) => match e {
-                _ => {
-                    error!("Error occurred retrieving value: {:?}", e);
-                    Default::default()
-                }
-            },
+            res = recv.changed().await;
         }
     }
 }
@@ -175,9 +204,9 @@ impl TcStore {
 #[embassy_executor::task]
 async fn flash_handler(mut flash: FlashType) {
     let config_start = unsafe { &__config_start as *const u32 as u32 } - 0x10000000;
-    let request_receiver = FLASH_CHANNEL.receiver();
+    let sender = FLASH_RES_WATCH.sender();
     loop {
-        let request = request_receiver.receive().await;
+        let request = FLASH_REQ_CHANNEL.receive().await;
 
         match request {
             FlashRequest::Set(mut params) => {
@@ -187,13 +216,14 @@ async fn flash_handler(mut flash: FlashType) {
                     (config_start)..(config_start + MAP_SIZE),
                     &mut NoCache::new(),
                     &mut buffer,
-                    &params.input.0,
-                    &params.input.1.as_slice(),
+                    &params.data.0,
+                    &params.data.1.as_slice(),
                 )
                 .await;
-                unsafe {
-                    (*params.responder.0).send(res).await;
-                }
+                sender.send(FlashResponse::Set(FlashInterface {
+                    id: params.id,
+                    data: res,
+                }));
             }
             FlashRequest::Get(mut params) => {
                 let mut buffer = [0_u8; VALUE_BUFFER_SIZE];
@@ -202,31 +232,32 @@ async fn flash_handler(mut flash: FlashType) {
                     (config_start)..(config_start + MAP_SIZE),
                     &mut NoCache::new(),
                     &mut buffer,
-                    &params.input,
+                    &params.data,
                 )
                 .await;
 
                 if res.is_ok() {
                     if res.as_ref().unwrap().is_some() {
-                        unsafe {
-                            (*params.responder.0)
-                                .send(Ok(Some(
-                                    Vec::<u8, VALUE_BUFFER_SIZE>::from_slice(
-                                        res.unwrap().unwrap_or_default(),
-                                    )
-                                    .unwrap(),
-                                )))
-                                .await;
-                        }
+                        sender.send(FlashResponse::Get(FlashInterface {
+                            id: params.id,
+                            data: Ok(Some(
+                                Vec::<u8, VALUE_BUFFER_SIZE>::from_slice(
+                                    res.unwrap().unwrap_or_default(),
+                                )
+                                .unwrap(),
+                            )),
+                        }));
                     } else {
-                        unsafe {
-                            (*params.responder.0).send(Ok(None)).await;
-                        }
+                        sender.send(FlashResponse::Get(FlashInterface {
+                            id: params.id,
+                            data: Ok(None),
+                        }));
                     }
                 } else {
-                    unsafe {
-                        (*params.responder.0).send(Err(res.unwrap_err())).await;
-                    }
+                    sender.send(FlashResponse::Get(FlashInterface {
+                        id: params.id,
+                        data: Err(res.unwrap_err()),
+                    }));
                 }
             }
         }
