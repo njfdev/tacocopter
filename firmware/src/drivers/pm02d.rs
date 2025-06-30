@@ -8,6 +8,8 @@ use embassy_time::Instant;
 use embedded_hal_async::i2c::I2c;
 use micromath::F32Ext;
 
+use crate::tools::moving_average::F32MovingAverage;
+
 const PM02D_ADDR: u8 = 0x45;
 const MAX_CURRENT: f32 = 80.0;
 const CURRENT_LSB: f32 = MAX_CURRENT / 524288.0_f32;
@@ -15,6 +17,8 @@ const R_SHUNT: f32 = 0.0005;
 const SHUNT_CAL: u16 = (13107.2e5_f32 * CURRENT_LSB * R_SHUNT) as u16;
 const INTERNAL_BATTERY_RESISTANCE: f32 = 0.0005;
 const INTERNAL_BATTERY_RESISTANCE_SLOPE_PER_PACK: f32 = 0.001;
+
+const VOLT_DROP_PER_AMP_PER_CELL: f32 = 0.0008;
 
 enum PM02DReg {
     ShuntCalibration = 0x02,
@@ -26,6 +30,7 @@ pub struct PM02D {
     i2c: I2cDevice<'static, CriticalSectionRawMutex, i2c::I2c<'static, I2C0, Async>>,
     total_used_capacity: f32,
     last_capacity_update: Option<Instant>,
+    current_moving_average: F32MovingAverage<5>,
 }
 
 const LIPO_VOLTAGE_CHARGE_LUT: [(f32, f32); 21] = [
@@ -60,6 +65,7 @@ impl PM02D {
             i2c,
             total_used_capacity: 0.0,
             last_capacity_update: None,
+            current_moving_average: F32MovingAverage::new(),
         };
         let res_success = new_pm02d.set_shunt_cal().await;
 
@@ -132,6 +138,10 @@ impl PM02D {
         }) as f32
             * CURRENT_LSB;
 
+        self.current_moving_average.sample(current);
+
+        let current = self.current_moving_average.get_average();
+
         if self.last_capacity_update.is_some() {
             self.total_used_capacity += (current * 1000.0)
                 * ((self.last_capacity_update.unwrap().elapsed().as_micros() as f32)
@@ -150,13 +160,7 @@ impl PM02D {
     ) -> (f32, f32) {
         let mut cell_voltage = self.get_voltage().await / (lipo_s_value as f32);
         let current = self.get_current().await;
-        cell_voltage = (cell_voltage
-            + (current
-                * (INTERNAL_BATTERY_RESISTANCE
-                    + INTERNAL_BATTERY_RESISTANCE_SLOPE_PER_PACK
-                        * (lipo_s_value as f32)
-                        * (LIPO_VOLTAGE_CHARGE_LUT[0].0 - cell_voltage).powf(1.5))))
-        .clamp(
+        cell_voltage = (cell_voltage + current * VOLT_DROP_PER_AMP_PER_CELL).clamp(
             LIPO_VOLTAGE_CHARGE_LUT[LIPO_VOLTAGE_CHARGE_LUT.len() - 1].0,
             LIPO_VOLTAGE_CHARGE_LUT[0].0,
         );
