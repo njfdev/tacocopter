@@ -111,10 +111,10 @@ pub struct TcStore;
 // TODO: add better error handling so DB issues won't mess up a flight
 impl TcStore {
     pub async fn init(spawner: &Spawner, mut flash: FlashType) {
-        let config_start = unsafe { &__config_start as *const u32 as u32 } - 0x10000000;
-        erase_all(&mut flash, (config_start)..(config_start + MAP_SIZE))
-            .await
-            .unwrap();
+        // let config_start = unsafe { &__config_start as *const u32 as u32 } - 0x10000000;
+        // erase_all(&mut flash, (config_start)..(config_start + MAP_SIZE))
+        //     .await
+        //     .unwrap();
         spawner.spawn(flash_handler(flash)).unwrap();
     }
 
@@ -148,7 +148,7 @@ impl TcStore {
                                 interface.data.unwrap_err()
                             );
                         } else {
-                            info!("Saved");
+                            info!("Saved: {:?}", data);
                         }
                         break;
                     }

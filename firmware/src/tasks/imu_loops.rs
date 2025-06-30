@@ -2,7 +2,7 @@ use embassy_rp::{
     i2c::{Async, I2c},
     peripherals::I2C1,
 };
-use embassy_time::Instant;
+use embassy_time::{Instant, Timer};
 use log::{info, warn};
 use micromath::F32Ext;
 use mpu6050::Mpu6050;
@@ -26,7 +26,6 @@ use crate::{
 pub async fn mpu6050_fetcher_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
     let mut last_loop = Instant::now();
     let mut last_log = Instant::now();
-    let mut sensor_calibration = Default::default();
     loop {
         let new_since_last = YieldingTimer::after_micros(
             ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) as u64)
@@ -37,19 +36,8 @@ pub async fn mpu6050_fetcher_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
         let frequency = 1_000_000.0 / last_loop.elapsed().as_micros() as f32;
         last_loop = new_since_last;
 
-        let calib_res = IMU_CALIB_SIGNAL.try_take();
-        if calib_res.is_some() {
-            sensor_calibration = calib_res.unwrap();
-        }
-
-        let gyro_data: [f32; 3] = correct_biases(
-            mpu.get_gyro().unwrap().as_slice().try_into().unwrap(),
-            sensor_calibration.gyro_calibration,
-        );
-        let accel_data: [f32; 3] = correct_biases(
-            mpu.get_acc().unwrap().as_slice().try_into().unwrap(),
-            sensor_calibration.accel_calibration,
-        );
+        let gyro_data: [f32; 3] = mpu.get_gyro().unwrap().as_slice().try_into().unwrap();
+        let accel_data: [f32; 3] = mpu.get_acc().unwrap().as_slice().try_into().unwrap();
 
         IMU_RAW_SIGNAL.signal((gyro_data, accel_data));
 
@@ -83,6 +71,7 @@ pub async fn mpu6050_processor_loop() {
     let mut since_last = Instant::now();
     let mut calibration_type: Option<CalibrationSensorType> = None;
     let mut gyro_calibrator = GyroCalibrator::new();
+    let mut sensor_calibration = tc_interface::SensorCalibrationData::default();
     // let mut iterations = 0;
     loop {
         // while (((1_000_000.0 * iterations as f64) / (UPDATE_LOOP_FREQUENCY)) as i64)
@@ -112,14 +101,16 @@ pub async fn mpu6050_processor_loop() {
                 CalibrationSensorType::Gyro(settings) => {
                     let bias_res = gyro_calibrator.process_data(gyro_data.into(), settings);
                     if bias_res.is_ok() {
+                        let bias_data = bias_res.unwrap();
+                        info!("act: {:?}", gyro_data);
+                        info!("Biased data: {:?}", bias_data);
                         calibration_type = None;
                         let mut current_calib = TcStore::get::<SensorCalibrationData>().await;
-                        current_calib.gyro_biases = bias_res.unwrap();
+                        current_calib.gyro_biases = bias_data;
                         TcStore::set(current_calib.clone()).await;
                         {
                             let mut shared = SHARED.lock().await;
-                            shared.calibration_data.gyro_calibration =
-                                current_calib.gyro_biases.into();
+                            shared.calibration_data.gyro_calibration = bias_data.into();
                         }
                         IMU_CALIB_SIGNAL.signal(current_calib.into());
                         CALIBRATION_FEEDBACK_SIGNAL.signal(SensorCalibrationType::GyroFinished);
@@ -148,6 +139,17 @@ pub async fn mpu6050_processor_loop() {
                 }
             }
         }
+
+        // correct biases
+        let calib_res = IMU_CALIB_SIGNAL.try_take();
+        if calib_res.is_some() {
+            sensor_calibration = calib_res.unwrap();
+        }
+
+        let (gyro_data, accel_data) = (
+            correct_biases(&gyro_data, sensor_calibration.gyro_calibration),
+            correct_biases(&accel_data, sensor_calibration.accel_calibration),
+        );
 
         kalman.update(
             Vector3::from_row_slice(&gyro_data),

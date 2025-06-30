@@ -11,6 +11,7 @@
 
 use embassy_time::Instant;
 use heapless::Vec;
+use log::info;
 use tc_interface::StartGyroCalibrationData;
 
 const MAX_CALIBRATION_STEPS: usize = 20000;
@@ -37,22 +38,35 @@ impl GyroCalibrator {
         settings: StartGyroCalibrationData,
     ) -> Result<(f32, f32, f32), (f32, usize)> {
         if self.is_running == false {
-            self.start_time = Instant::now();
+            self.data_points.clear();
             self.is_running = true;
+            self.start_time = Instant::now();
         }
-
-        self.data_points.push(data);
 
         let elapsed = self.start_time.elapsed().as_micros() as f32 / 1_000_000.0;
         if elapsed > settings.sampling_time {
             let bias = calc_averages(&self.data_points);
-            self.data_points.clear();
             self.is_running = false;
             return Ok(bias);
         }
 
+        self.data_points.push(data);
+
         return Err((settings.sampling_time - elapsed, self.data_points.len()));
     }
+}
+
+fn calc_averages(data: &Vec<(f32, f32, f32), MAX_CALIBRATION_STEPS>) -> (f32, f32, f32) {
+    let mut avgs: (f32, f32, f32) = (0.0, 0.0, 0.0);
+    for val in data.iter() {
+        avgs.0 += val.0;
+        avgs.1 += val.1;
+        avgs.2 += val.2;
+    }
+    avgs.0 /= data.len() as f32;
+    avgs.1 /= data.len() as f32;
+    avgs.2 /= data.len() as f32;
+    return avgs;
 }
 
 // async fn calibrate_accel(mpu: &mut Mpu6050<i2c::I2c<'static, I2C1, i2c::Async>>, duration: f32) {
@@ -123,16 +137,3 @@ impl GyroCalibrator {
 
 //     bias
 // }
-
-fn calc_averages(data: &Vec<(f32, f32, f32), MAX_CALIBRATION_STEPS>) -> (f32, f32, f32) {
-    let mut avgs: (f32, f32, f32) = (0.0, 0.0, 0.0);
-    for val in data.iter() {
-        avgs.0 += val.0;
-        avgs.1 += val.1;
-        avgs.2 += val.2;
-    }
-    avgs.0 /= data.len() as f32;
-    avgs.1 /= data.len() as f32;
-    avgs.2 /= data.len() as f32;
-    return avgs;
-}
