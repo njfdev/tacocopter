@@ -9,16 +9,18 @@ pub mod setup;
 pub mod tasks;
 pub mod tools;
 
+use core::str::FromStr;
+
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
 use embassy_sync::lazy_lock::LazyLock;
 use embassy_time::Timer;
 use heapless::{String, Vec};
-use log::info;
+use log::{info, warn};
 
 use crate::drivers::tc_log::TcUsbLogger;
-use crate::drivers::tc_store::{SensorCalibrationData, TcStore};
+use crate::drivers::tc_store::{PanicData, SensorCalibrationData, TcStore};
 use crate::global::{BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL};
 use crate::setup::clock::setup_clocks;
 use crate::setup::flash::setup_flash_store;
@@ -33,10 +35,28 @@ use defmt_rtt as _; //, panic_probe as _};
 #[used]
 pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
+#[link_section = ".noinit.panic_msg"]
+static mut PANIC_STRING: String<1024> = String::new();
+
+#[link_section = ".noinit.panic_msg"]
+static mut PANIC_FLAG: u32 = 0x0;
+
+const DID_PANIC_FLAG_NUMBER: u32 = 0xDEADBEEF;
+
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     defmt::error!("Panic: {}", info);
-    cortex_m::asm::bkpt(); // <- stops in debugger
+    unsafe {
+        PANIC_STRING = String::from_str(
+            info.message()
+                .as_str()
+                .unwrap_or("Unable to get panic message"),
+        )
+        .unwrap_or_default();
+        PANIC_FLAG = DID_PANIC_FLAG_NUMBER;
+    }
+    // reboot
+    cortex_m::peripheral::SCB::sys_reset();
     loop {}
 }
 
@@ -106,6 +126,15 @@ async fn main(spawner: Spawner) {
     );
 
     let mut imu_process_freq = 1.0;
+
+    unsafe {
+        if PANIC_FLAG == 0xDEADBEEF {
+            Timer::after_secs(2).await;
+            PANIC_FLAG = 0x0;
+
+            warn!("Panic occurred: \n\n{:?}", PANIC_STRING);
+        }
+    }
 
     loop {
         // blinking the onboard led can let us determine 2 pieces of important information without a debugger probe
