@@ -10,7 +10,7 @@ use embedded_hal_async::i2c::I2c;
 use crate::tools::moving_average::F32MovingAverage;
 
 const PM02D_ADDR: u8 = 0x45;
-const MAX_CURRENT: f32 = 80.0;
+const MAX_CURRENT: f32 = 300.0;
 const CURRENT_LSB: f32 = MAX_CURRENT / 524288.0_f32;
 const R_SHUNT: f32 = 0.0005;
 const SHUNT_CAL: u16 = (13107.2e5_f32 * CURRENT_LSB * R_SHUNT) as u16;
