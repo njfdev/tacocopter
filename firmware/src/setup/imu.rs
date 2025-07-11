@@ -7,7 +7,6 @@ use embassy_time::Delay;
 use mpu6050::Mpu6050;
 
 use crate::{
-    consts::{ACCEL_BIASES, GYRO_BIASES},
     drivers::tc_store::{SensorCalibrationData, TcStore},
     global::{IMU_CALIB_SIGNAL, SHARED},
 };

@@ -3,16 +3,13 @@ use core::f32::consts::PI;
 use crate::{
     consts::{ULTRASONIC_DISTANCE_TO_CENTER_PITCH, ULTRASONIC_HEIGHT_ABOVE_BOTTOM},
     drivers::hc_sr04::HcSr04,
-    global::{IMU_SIGNAL, SHARED, TEMPERATURE, ULTRASONIC_WATCH},
-    tools::yielding_timer::YieldingTimer,
+    global::{IMU_SIGNAL, ULTRASONIC_WATCH},
 };
 use embassy_rp::{
-    gpio::{AnyPin, Input, Level, Output, Pull},
     peripherals::{PIN_16, PIN_17, PIO1},
-    pio::{Common, PioPin, StateMachine},
     Peri,
 };
-use embassy_time::{with_timeout, Duration, Instant, Timer};
+use embassy_time::Timer;
 use micromath::F32Ext;
 
 #[embassy_executor::task]

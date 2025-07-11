@@ -1,7 +1,4 @@
-use crate::{
-    global::{ELRS_SIGNAL, SHARED},
-    tools::yielding_timer::YieldingTimer,
-};
+use crate::global::{ELRS_SIGNAL, SHARED};
 use embassy_rp::uart::BufferedUartRx;
 use embedded_io_async::Read;
 use log::{debug, error, trace, warn};

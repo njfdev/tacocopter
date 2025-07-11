@@ -1,19 +1,11 @@
-use core::cell::OnceCell;
-
-use embassy_rp::{
-    flash::{Async, Flash},
-    peripherals::FLASH,
-};
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, lazy_lock::LazyLock,
     mutex::Mutex, once_lock::OnceLock, signal::Signal, watch::Watch,
 };
 use embassy_time::Instant;
-use heapless::String;
-use static_cell::StaticCell;
 use tc_interface::{
-    GyroCalibrationProgressData, ImuSensorData, LogData, SensorCalibrationData,
-    SensorCalibrationType, SensorData, StartGyroCalibrationData, StateData,
+    ImuSensorData, LogData, SensorCalibrationData, SensorCalibrationType, SensorData,
+    StartGyroCalibrationData, StateData,
 };
 
 use crate::{

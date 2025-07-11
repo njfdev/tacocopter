@@ -11,7 +11,6 @@
 
 use embassy_time::Instant;
 use heapless::Vec;
-use log::info;
 use tc_interface::StartGyroCalibrationData;
 
 const MAX_CALIBRATION_STEPS: usize = 20000;
@@ -50,7 +49,7 @@ impl GyroCalibrator {
             return Ok(bias);
         }
 
-        self.data_points.push(data);
+        let _ = self.data_points.push(data);
 
         return Err((settings.sampling_time - elapsed, self.data_points.len()));
     }

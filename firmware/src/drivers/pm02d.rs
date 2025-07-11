@@ -6,7 +6,6 @@ use embassy_rp::{
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Instant;
 use embedded_hal_async::i2c::I2c;
-use micromath::F32Ext;
 
 use crate::tools::moving_average::F32MovingAverage;
 
@@ -15,8 +14,8 @@ const MAX_CURRENT: f32 = 80.0;
 const CURRENT_LSB: f32 = MAX_CURRENT / 524288.0_f32;
 const R_SHUNT: f32 = 0.0005;
 const SHUNT_CAL: u16 = (13107.2e5_f32 * CURRENT_LSB * R_SHUNT) as u16;
-const INTERNAL_BATTERY_RESISTANCE: f32 = 0.0005;
-const INTERNAL_BATTERY_RESISTANCE_SLOPE_PER_PACK: f32 = 0.001;
+// const INTERNAL_BATTERY_RESISTANCE: f32 = 0.0005;
+// const INTERNAL_BATTERY_RESISTANCE_SLOPE_PER_PACK: f32 = 0.001;
 
 const VOLT_DROP_PER_AMP_PER_CELL: f32 = 0.0008;
 

@@ -8,10 +8,10 @@ use embassy_rp::{
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch::Sender};
 use embassy_time::Instant;
 use embedded_io_async::Read;
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use static_cell::StaticCell;
 
-use crate::{global::GPS_SIGNAL, tools::yielding_timer::YieldingTimer};
+use crate::global::GPS_SIGNAL;
 
 bind_interrupts!(struct UartIrq {
   UART1_IRQ => BufferedInterruptHandler<UART1>;

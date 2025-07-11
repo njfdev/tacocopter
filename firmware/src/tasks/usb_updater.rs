@@ -1,18 +1,15 @@
-use core::{f32, str::FromStr};
-
+use core::f32;
 use embassy_futures::select::{select, Either};
 use embassy_rp::{
     peripherals::USB,
     usb::{Driver, Endpoint, In, Out},
 };
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::Instant;
 use embassy_usb::driver::{EndpointIn, EndpointOut};
 use embassy_usb::UsbDevice;
-use heapless::String;
 use postcard::from_bytes;
 use tc_interface::{
-    ConfiguratorMessage, ImuSensorData, LogData, SensorCalibrationData, SensorData,
-    StartGyroCalibrationData, StateData, TCMessage,
+    ConfiguratorMessage, ImuSensorData, SensorCalibrationData, SensorData, StateData, TCMessage,
 };
 
 use crate::{
@@ -39,7 +36,6 @@ pub async fn usb_updater(
     mut usb_send: Endpoint<'static, USB, In>,
     mut usb_read: Endpoint<'static, USB, Out>,
 ) {
-    let time_between = Duration::from_millis((1000.0 / USB_LOGGER_RATE) as u64);
     let mut since_last = Instant::now();
     let mut cur_log_id: u8 = 0;
     let mut ultrasonic_receiver = ULTRASONIC_WATCH.receiver().unwrap();

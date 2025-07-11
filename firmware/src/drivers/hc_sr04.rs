@@ -1,20 +1,12 @@
 use embassy_rp::{
     bind_interrupts,
     clocks::clk_sys_freq,
-    gpio::{AnyPin, Input, Level, Output, Pull},
-    peripherals::{PIO0, PIO1},
-    pio::{
-        program::pio_asm, Common, Config, InterruptHandler, Pin, PinConfig, Pio, PioPin,
-        ShiftDirection, StateMachine,
-    },
+    peripherals::PIO1,
+    pio::{program::pio_asm, Config, InterruptHandler, Pio, PioPin, ShiftDirection, StateMachine},
     Peri,
 };
-use embassy_time::Instant;
 use fixed::FixedU32;
-use fixed_macro::types::U56F8;
 use log::debug;
-
-use crate::tools::yielding_timer::YieldingTimer;
 
 pub struct HcSr04 {
     // trig: Output<'static>,

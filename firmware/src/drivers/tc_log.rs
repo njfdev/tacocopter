@@ -1,13 +1,5 @@
-use core::{
-    cell::Cell,
-    fmt::Error,
-    str::FromStr,
-    sync::atomic::{AtomicU16, AtomicU32, Ordering},
-};
-use embassy_sync::blocking_mutex::{
-    raw::{CriticalSectionRawMutex, RawMutex},
-    Mutex,
-};
+use core::{cell::Cell, str::FromStr};
+use embassy_sync::blocking_mutex::{raw::CriticalSectionRawMutex, Mutex};
 use format_no_std::show;
 use heapless::String;
 use log::{Level, SetLoggerError};
@@ -78,7 +70,7 @@ impl log::Log for TcUsbLogger {
                 Ok(log_value) => {
                     TcUsbLogger::send_log(record.level(), log_value);
                 }
-                Err(e) => {
+                Err(_e) => {
                     TcUsbLogger::send_log(
                         Level::Error,
                         "Failure to send log: likely large than 1024 character limit",

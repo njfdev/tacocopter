@@ -3,41 +3,22 @@
  * postcard and structs rather than raw bytes or byte strings).
  */
 
-use core::{
-    cell::{Cell, OnceCell},
-    fmt::Debug,
-    mem::transmute,
-    str::FromStr,
-};
+use core::{cell::Cell, fmt::Debug, str::FromStr};
 
+use crate::setup::flash::{FlashType, CONFIG_SIZE};
 use embassy_executor::Spawner;
-use embassy_futures::yield_now;
-use embassy_rp::flash::Flash;
 use embassy_sync::{
-    blocking_mutex::raw::CriticalSectionRawMutex,
-    channel::{self, Channel},
-    mutex::Mutex,
-    signal::{self, Signal},
-    watch::{Sender, Watch},
+    blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::Mutex, watch::Watch,
 };
-use embassy_time::Timer;
-use heapless::{pool::arc::Arc, String};
+use heapless::String;
 use heapless_7::Vec;
 use log::{error, info, warn};
 use postcard::from_bytes;
-use rand::Rng;
 use sequential_storage::{
     cache::NoCache,
-    erase_all,
     map::{fetch_item, store_item},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use static_cell::StaticCell;
-
-use crate::{
-    global::FLASH_MUTEX,
-    setup::flash::{FlashType, CONFIG_SIZE},
-};
 
 // assume 75% of the database storage space will be for flight logging
 static SPACE_FOR_LOGS: usize = CONFIG_SIZE * 3 / 4;
@@ -110,7 +91,7 @@ pub struct TcStore;
 
 // TODO: add better error handling so DB issues won't mess up a flight
 impl TcStore {
-    pub async fn init(spawner: &Spawner, mut flash: FlashType) {
+    pub async fn init(spawner: &Spawner, flash: FlashType) {
         // let config_start = unsafe { &__config_start as *const u32 as u32 } - 0x10000000;
         // erase_all(&mut flash, (config_start)..(config_start + MAP_SIZE))
         //     .await
@@ -209,7 +190,7 @@ async fn flash_handler(mut flash: FlashType) {
         let request = FLASH_REQ_CHANNEL.receive().await;
 
         match request {
-            FlashRequest::Set(mut params) => {
+            FlashRequest::Set(params) => {
                 let mut buffer = [0_u8; VALUE_BUFFER_SIZE];
                 let res = store_item(
                     &mut flash,
@@ -225,7 +206,7 @@ async fn flash_handler(mut flash: FlashType) {
                     data: res,
                 }));
             }
-            FlashRequest::Get(mut params) => {
+            FlashRequest::Get(params) => {
                 let mut buffer = [0_u8; VALUE_BUFFER_SIZE];
                 let res = fetch_item(
                     &mut flash,

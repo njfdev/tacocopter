@@ -2,7 +2,7 @@ use embassy_rp::{
     i2c::{Async, I2c},
     peripherals::I2C1,
 };
-use embassy_time::{Instant, Timer};
+use embassy_time::Instant;
 use log::{info, warn};
 use micromath::F32Ext;
 use mpu6050::Mpu6050;
@@ -10,8 +10,8 @@ use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 use tc_interface::{GyroCalibrationProgressData, SensorCalibrationType};
 
 use crate::{
-    consts::{ACCEL_BIASES, GYRO_BIASES, UPDATE_LOOP_FREQUENCY, USB_LOGGER_RATE},
-    drivers::tc_store::{SensorCalibrationData, TcKeyValueStoreData, TcStore},
+    consts::{UPDATE_LOOP_FREQUENCY, USB_LOGGER_RATE},
+    drivers::tc_store::{SensorCalibrationData, TcStore},
     global::{
         CalibrationSensorType, CALIBRATION_FEEDBACK_SIGNAL, IMU_CALIB_SIGNAL,
         IMU_FETCH_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL, IMU_RAW_SIGNAL, IMU_SIGNAL,

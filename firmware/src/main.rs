@@ -16,11 +16,10 @@ use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
 use embassy_sync::lazy_lock::LazyLock;
 use embassy_time::Timer;
-use heapless::{String, Vec};
-use log::{info, warn};
+use heapless::String;
+use log::warn;
 
 use crate::drivers::tc_log::TcUsbLogger;
-use crate::drivers::tc_store::{PanicData, SensorCalibrationData, TcStore};
 use crate::global::{BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL};
 use crate::setup::clock::setup_clocks;
 use crate::setup::flash::setup_flash_store;
@@ -57,7 +56,6 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     }
     // reboot
     cortex_m::peripheral::SCB::sys_reset();
-    loop {}
 }
 
 #[embassy_executor::main]
