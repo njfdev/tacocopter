@@ -46,15 +46,17 @@ pub async fn usb_updater(
     let mut since_last_toggle = Instant::now();
     loop {
         // wait to run until USB is plugged in
-        if is_usb_enabled {
-            let changed_value = usb_enabled_receiver.try_changed();
-            if changed_value.is_some() {
-                is_usb_enabled = changed_value.unwrap();
+        loop {
+            let enabled_res = usb_enabled_receiver.try_changed();
+            if enabled_res.is_some() {
+                is_usb_enabled = enabled_res.unwrap();
             }
-        }
-        if !is_usb_enabled {
-            while !usb_enabled_receiver.get().await {}
-            is_usb_enabled = true;
+
+            if is_usb_enabled {
+                break;
+            }
+
+            YieldingTimer::after_millis(50).await;
         }
 
         let mut buffer = [0u8; 64];
