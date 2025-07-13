@@ -3,6 +3,7 @@ use dshot_pio::dshot_embassy_rp::DshotPio;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::{Executor, Spawner};
 use embassy_rp::{
+    gpio::{AnyPin, Output},
     i2c::{self, Async, I2c},
     multicore::{spawn_core1, Stack},
     peripherals::{CORE1, I2C0, I2C1, PIN_16, PIN_17, PIO0, PIO1, USB},

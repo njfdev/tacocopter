@@ -103,3 +103,5 @@ pub static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(Shar
 
 // store access to Flash behind a mutex
 pub static FLASH_MUTEX: OnceLock<Mutex<CriticalSectionRawMutex, FlashType>> = OnceLock::new();
+
+pub static USB_ENABLED: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();

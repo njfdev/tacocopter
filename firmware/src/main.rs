@@ -9,18 +9,17 @@ pub mod setup;
 pub mod tasks;
 pub mod tools;
 
-use core::str::FromStr;
-
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
+use embassy_rp::gpio::Level;
 use embassy_sync::lazy_lock::LazyLock;
 use embassy_time::Timer;
 use heapless::String;
 use log::warn;
 
 use crate::drivers::tc_log::TcUsbLogger;
-use crate::global::{BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL};
+use crate::global::{BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, USB_ENABLED};
 use crate::setup::clock::setup_clocks;
 use crate::setup::flash::setup_flash_store;
 use crate::setup::peripherals::{setup_peripherals, SetupPeripherals};
@@ -46,12 +45,14 @@ const DID_PANIC_FLAG_NUMBER: u32 = 0xDEADBEEF;
 fn panic(info: &core::panic::PanicInfo) -> ! {
     defmt::error!("Panic: {}", info);
     unsafe {
-        PANIC_STRING = String::from_str(
+        let mut panic_string = String::new();
+        // if this fails, continue anyways because we are already in a panicked state
+        let _ = panic_string.push_str(
             info.message()
                 .as_str()
                 .unwrap_or("Unable to get panic message"),
-        )
-        .unwrap_or_default();
+        );
+        PANIC_STRING = panic_string;
         PANIC_FLAG = DID_PANIC_FLAG_NUMBER;
     }
     // reboot

@@ -1,6 +1,7 @@
 use core::f32;
 use embassy_futures::select::{select, Either};
 use embassy_rp::{
+    gpio::{AnyPin, Level, Output},
     peripherals::USB,
     usb::{Driver, Endpoint, In, Out},
 };
@@ -18,7 +19,7 @@ use crate::{
         CalibrationSensorType, BOOT_TIME, CALIBRATION_FEEDBACK_SIGNAL,
         CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_FETCH_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL,
         LOG_CHANNEL, POSITION_HOLD_LOOP_FREQUENCY_SIGNAL, SHARED, START_CALIBRATION_SIGNAL,
-        ULTRASONIC_WATCH,
+        ULTRASONIC_WATCH, USB_ENABLED,
     },
     tools::yielding_timer::YieldingTimer,
 };
@@ -27,7 +28,8 @@ use crate::{
 pub async fn usb_task(mut usb: UsbDevice<'static, Driver<'static, USB>>) {
     // loop shouldn't be needed, but just in case to prevent usb from being dropped
     loop {
-        usb.run().await;
+        usb.run_until_suspend().await;
+        usb.disable().await;
     }
 }
 
@@ -39,7 +41,22 @@ pub async fn usb_updater(
     let mut since_last = Instant::now();
     let mut cur_log_id: u8 = 0;
     let mut ultrasonic_receiver = ULTRASONIC_WATCH.receiver().unwrap();
+    let mut usb_enabled_receiver = USB_ENABLED.receiver().unwrap();
+    let mut is_usb_enabled = usb_enabled_receiver.try_get().unwrap_or_default();
+    let mut since_last_toggle = Instant::now();
     loop {
+        // wait to run until USB is plugged in
+        if is_usb_enabled {
+            let changed_value = usb_enabled_receiver.try_changed();
+            if changed_value.is_some() {
+                is_usb_enabled = changed_value.unwrap();
+            }
+        }
+        if !is_usb_enabled {
+            while !usb_enabled_receiver.get().await {}
+            is_usb_enabled = true;
+        }
+
         let mut buffer = [0u8; 64];
         let state_data: StateData;
         let imu_sensor_data: ImuSensorData;
