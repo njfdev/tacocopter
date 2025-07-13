@@ -142,7 +142,7 @@ async fn reader(mut rx: BufferedUartRx) {
         if current_len >= len {
             if Instant::now()
                 .checked_duration_since(time_since_last)
-                .unwrap()
+                .unwrap_or_default()
                 .as_millis()
                 > 0
             {

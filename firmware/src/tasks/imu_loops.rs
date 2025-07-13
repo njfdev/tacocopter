@@ -87,7 +87,7 @@ pub async fn mpu6050_processor_loop() {
         let ending = Instant::now();
         let delta = (ending
             .checked_duration_since(since_last)
-            .unwrap()
+            .unwrap_or_default()
             .as_micros() as f32)
             / 1_000_000.0;
         since_last = ending;
@@ -117,7 +117,7 @@ pub async fn mpu6050_processor_loop() {
                     } else {
                         if Instant::now()
                             .checked_duration_since(start)
-                            .unwrap()
+                            .unwrap_or_default()
                             .as_millis()
                             >= (1000.0 / USB_LOGGER_RATE) as u64
                         {
@@ -192,7 +192,7 @@ pub async fn mpu6050_processor_loop() {
         // let mut should_start_gyro_calib = false;
         if Instant::now()
             .checked_duration_since(start)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis()
             >= (1000.0 / USB_LOGGER_RATE) as u64
         {

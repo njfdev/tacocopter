@@ -18,7 +18,7 @@ impl TcUsbLogger {
     }
 
     fn send_log(level: Level, text: &str) {
-        let text_string = String::<1024>::from_str(text).unwrap();
+        let text_string = String::<1024>::from_str(text).unwrap_or_default();
         let mut start = 0;
         let len = text_string.len();
         let mut part_id = 0;
