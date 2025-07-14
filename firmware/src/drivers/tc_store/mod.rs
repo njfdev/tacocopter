@@ -5,13 +5,18 @@
 
 use core::{cell::Cell, fmt::Debug, str::FromStr};
 
-use crate::setup::flash::{FlashType, CONFIG_SIZE};
+use crate::{
+    drivers::tc_store::lfs2::Lfs2Storage,
+    setup::flash::{FlashType, CONFIG_SIZE},
+};
 use embassy_executor::Spawner;
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::Mutex, watch::Watch,
 };
+use embassy_time::{Instant, Timer};
 use heapless::String;
 use heapless_7::Vec;
+use littlefs2::fs::{Allocation, Filesystem};
 use log::{error, info, warn};
 use postcard::from_bytes;
 use sequential_storage::{
@@ -19,6 +24,8 @@ use sequential_storage::{
     map::{fetch_item, store_item},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+mod lfs2;
 
 // assume 75% of the database storage space will be for flight logging
 static SPACE_FOR_LOGS: usize = CONFIG_SIZE * 3 / 4;
@@ -41,6 +48,18 @@ enum FlashRequest {
 }
 
 #[derive(Clone)]
+pub struct BlackboxLogData {
+    timestamp_micros: u64,
+    target_rate: [f32; 3],
+    actual_rate: [f32; 3],
+    p_term: [f32; 3],
+    i_term: [f32; 3],
+    d_term: [f32; 3],
+    pid_output: [f32; 3],
+    g_force: f32,
+}
+
+#[derive(Clone)]
 enum FlashResponse {
     Set(FlashInterface<Result<(), sequential_storage::Error<embassy_rp::flash::Error>>>),
     Get(
@@ -51,6 +70,9 @@ enum FlashResponse {
             >,
         >,
     ),
+    StartLog,
+    Log(BlackboxLogData),
+    StopLog,
 }
 
 static REQ_ID: Mutex<CriticalSectionRawMutex, Cell<usize>> = Mutex::new(Cell::new(0));
@@ -182,8 +204,52 @@ impl TcStore {
     }
 }
 
+fn setup_lfs2(flash: FlashType) -> Lfs2Storage {
+    let mut storage = Lfs2Storage::new(flash);
+    let mut alloc = Allocation::new();
+    let mut fs = Filesystem::mount(&mut alloc, &mut storage);
+    if fs.is_err() {
+        // only continues if a corruption error
+        fs.inspect_err(|err| match err {
+            &littlefs2::io::Error::CORRUPTION => {
+                info!("Filesystem is corrupted,")
+            }
+            _ => {
+                error!("Filesystem Error: {:?}", err.code());
+                panic!("Unable to mount filesystem");
+            }
+        })
+        .unwrap();
+
+        // format the filesystem and rerun the mount
+        let format_res = Filesystem::format(&mut storage);
+        if format_res.is_err() {
+            format_res
+                .inspect_err(|err| {
+                    error!("Formatting error: {:?}", err.code());
+                    panic!("Unable to format the filesystem");
+                })
+                .unwrap();
+        }
+
+        fs = Filesystem::mount(&mut alloc, &mut storage);
+        if fs.is_err() {
+            fs.inspect_err(|err| {
+                error!("Filesystem Error: {:?}", err.code());
+                panic!("Unable to mount filesystem");
+            })
+            .unwrap();
+        }
+    }
+    storage
+}
+
 #[embassy_executor::task]
 async fn flash_handler(mut flash: FlashType) {
+    Timer::after_secs(2).await;
+    // init littlefs2
+    let mut storage = setup_lfs2(flash);
+
     let config_start = unsafe { &__config_start as *const u32 as u32 } - 0x10000000;
     let sender = FLASH_RES_WATCH.sender();
     loop {
@@ -193,7 +259,7 @@ async fn flash_handler(mut flash: FlashType) {
             FlashRequest::Set(params) => {
                 let mut buffer = [0_u8; VALUE_BUFFER_SIZE];
                 let res = store_item(
-                    &mut flash,
+                    storage.flash(),
                     (config_start)..(config_start + MAP_SIZE),
                     &mut NoCache::new(),
                     &mut buffer,
@@ -209,7 +275,7 @@ async fn flash_handler(mut flash: FlashType) {
             FlashRequest::Get(params) => {
                 let mut buffer = [0_u8; VALUE_BUFFER_SIZE];
                 let res = fetch_item(
-                    &mut flash,
+                    storage.flash(),
                     (config_start)..(config_start + MAP_SIZE),
                     &mut NoCache::new(),
                     &mut buffer,

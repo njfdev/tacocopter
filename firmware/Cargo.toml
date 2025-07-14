@@ -76,6 +76,7 @@ uom = { version = "0.36", default-features = false, features = ["autoconvert", "
 dshot-pio = { git = "https://github.com/njfdev/dshot-pio.git", features = ["embassy-rp"] }
 format_no_std = "1.2.0"
 sequential-storage = { version = "4.0.3", features = ["heapless"] }
+littlefs2 = { version = "0.6.1", features = ["c-stubs", "log-all"]}
 
 [patch.crates-io]
 embassy-sync = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt"] }
