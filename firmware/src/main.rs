@@ -128,10 +128,14 @@ async fn main(spawner: Spawner) {
 
     unsafe {
         if PANIC_FLAG == 0xDEADBEEF {
-            Timer::after_secs(2).await;
             PANIC_FLAG = 0x0;
 
-            warn!("Panic occurred: \n\n{:?}", PANIC_STRING);
+            // if panicked, go into a mode where it just prints the message
+            loop {
+                Timer::after_secs(2).await;
+
+                warn!("Panic occurred: \n\n{:?}", PANIC_STRING);
+            }
         }
     }
 
