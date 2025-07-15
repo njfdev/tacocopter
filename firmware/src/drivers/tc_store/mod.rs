@@ -3,7 +3,12 @@
  * postcard and structs rather than raw bytes or byte strings).
  */
 
-use core::{cell::Cell, fmt::Debug, str::FromStr};
+use core::{
+    cell::{Cell, RefCell},
+    fmt::Debug,
+    ptr::addr_of_mut,
+    str::FromStr,
+};
 
 use crate::{
     drivers::tc_store::lfs2::Lfs2Storage,
@@ -16,7 +21,11 @@ use embassy_sync::{
 use embassy_time::{Instant, Timer};
 use heapless::String;
 use heapless_7::Vec;
-use littlefs2::fs::{Allocation, Filesystem};
+use littlefs2::{
+    fs::{Allocation, File, FileAllocation, Filesystem},
+    io::SeekFrom,
+    path::Path,
+};
 use log::{error, info, warn};
 use postcard::from_bytes;
 use sequential_storage::{
@@ -27,24 +36,18 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 mod lfs2;
 
-// assume 75% of the database storage space will be for flight logging
-static SPACE_FOR_LOGS: usize = CONFIG_SIZE * 3 / 4;
-static VALUE_BUFFER_SIZE: usize = 1024;
+const BLACKBOX_LOGGING_PATH: &str = "blackbox.bin";
 
-static MAP_SIZE: u32 = 0x10000;
+// assume 75% of the database storage space will be for flight logging
+const SPACE_FOR_LOGS: usize = CONFIG_SIZE * 3 / 4;
+const VALUE_BUFFER_SIZE: usize = 1024;
+
+const MAP_SIZE: u32 = 0x10000;
 
 #[derive(Clone)]
 struct FlashInterface<T> {
     id: usize,
     data: T,
-}
-
-struct RawChannelPtr<R>(*mut Channel<CriticalSectionRawMutex, R, 1>);
-unsafe impl<R> Send for RawChannelPtr<R> {}
-
-enum FlashRequest {
-    Set(FlashInterface<(String<16>, Vec<u8, VALUE_BUFFER_SIZE>)>),
-    Get(FlashInterface<String<16>>),
 }
 
 #[derive(Clone)]
@@ -59,6 +62,17 @@ pub struct BlackboxLogData {
     g_force: f32,
 }
 
+struct RawChannelPtr<R>(*mut Channel<CriticalSectionRawMutex, R, 1>);
+unsafe impl<R> Send for RawChannelPtr<R> {}
+
+enum FlashRequest {
+    Set(FlashInterface<(String<16>, Vec<u8, VALUE_BUFFER_SIZE>)>),
+    Get(FlashInterface<String<16>>),
+    StartLog,
+    Log(BlackboxLogData),
+    StopLog,
+}
+
 #[derive(Clone)]
 enum FlashResponse {
     Set(FlashInterface<Result<(), sequential_storage::Error<embassy_rp::flash::Error>>>),
@@ -70,9 +84,6 @@ enum FlashResponse {
             >,
         >,
     ),
-    StartLog,
-    Log(BlackboxLogData),
-    StopLog,
 }
 
 static REQ_ID: Mutex<CriticalSectionRawMutex, Cell<usize>> = Mutex::new(Cell::new(0));
@@ -113,7 +124,7 @@ pub struct TcStore;
 
 // TODO: add better error handling so DB issues won't mess up a flight
 impl TcStore {
-    pub async fn init(spawner: &Spawner, flash: FlashType) {
+    pub async fn init<'a>(spawner: &Spawner, flash: FlashType) {
         // let config_start = unsafe { &__config_start as *const u32 as u32 } - 0x10000000;
         // erase_all(&mut flash, (config_start)..(config_start + MAP_SIZE))
         //     .await
@@ -202,71 +213,82 @@ impl TcStore {
             res = recv.changed().await;
         }
     }
+
+    pub async fn start_log() {}
 }
 
-fn setup_lfs2(flash: FlashType) -> Lfs2Storage {
-    let mut storage = Lfs2Storage::new(flash);
-    let mut alloc = Allocation::new();
-    let mut fs = Filesystem::mount(&mut alloc, &mut storage);
-    if fs.is_err() {
-        // only continues if a corruption error
-        fs.inspect_err(|err| match err {
-            &littlefs2::io::Error::CORRUPTION => {
-                info!("Filesystem is corrupted,")
-            }
-            _ => {
-                error!("Filesystem Error: {:?}", err.code());
-                panic!("Unable to mount filesystem");
-            }
-        })
-        .unwrap();
+fn setup_lfs2<'a>(
+    storage: &'a mut Lfs2Storage,
+    alloc: &'a mut Allocation<Lfs2Storage>,
+) -> Filesystem<'a, Lfs2Storage> {
+    let mountable = Filesystem::is_mountable(storage);
 
-        // format the filesystem and rerun the mount
-        let format_res = Filesystem::format(&mut storage);
+    if !mountable {
+        // Format the filesystem because not being mountable is likely due to the filesystem not being formatted
+        let format_res = Filesystem::format(storage);
         if format_res.is_err() {
             format_res
                 .inspect_err(|err| {
                     error!("Formatting error: {:?}", err.code());
-                    panic!("Unable to format the filesystem");
                 })
                 .unwrap();
-        }
-
-        fs = Filesystem::mount(&mut alloc, &mut storage);
-        if fs.is_err() {
-            fs.inspect_err(|err| {
-                error!("Filesystem Error: {:?}", err.code());
-                panic!("Unable to mount filesystem");
-            })
-            .unwrap();
+            panic!("Unable to format the filesystem");
         }
     }
-    storage
+
+    let fs = Filesystem::mount(alloc, storage);
+    if fs.is_err() {
+        fs.inspect_err(|err| {
+            error!("Filesystem Error: {:?}", err.code());
+        })
+        .unwrap();
+        panic!("Unable to mount filesystem");
+    } else {
+        return fs.unwrap();
+    }
 }
 
 #[embassy_executor::task]
 async fn flash_handler(mut flash: FlashType) {
     Timer::after_secs(2).await;
+    let mut storage = Lfs2Storage::new(flash);
+
     // init littlefs2
-    let mut storage = setup_lfs2(flash);
+    let mut alloc = Allocation::new();
+    let mut lfs2_storage = storage.clone_with_shared_flash();
+    let mut fs = setup_lfs2(&mut lfs2_storage, &mut alloc);
+    info!("Filesystem mounted!");
+
+    let mut file_alloc = FileAllocation::new();
 
     let config_start = unsafe { &__config_start as *const u32 as u32 } - 0x10000000;
     let sender = FLASH_RES_WATCH.sender();
+
+    let mut log_path = Path::from_str_with_nul(BLACKBOX_LOGGING_PATH).unwrap();
+    let mut log_file: Option<File<Lfs2Storage>> = None;
+    let mut write_index: u32 = 0;
+    let mut read_index: u32 = 0;
+    const HEADER_LENGTH: usize = 8;
+
     loop {
         let request = FLASH_REQ_CHANNEL.receive().await;
 
         match request {
             FlashRequest::Set(params) => {
                 let mut buffer = [0_u8; VALUE_BUFFER_SIZE];
-                let res = store_item(
-                    storage.flash(),
-                    (config_start)..(config_start + MAP_SIZE),
-                    &mut NoCache::new(),
-                    &mut buffer,
-                    &params.data.0,
-                    &params.data.1.as_slice(),
-                )
-                .await;
+                let res = storage
+                    .with_flash_async(async |flash| {
+                        store_item(
+                            flash,
+                            (config_start)..(config_start + MAP_SIZE),
+                            &mut NoCache::new(),
+                            &mut buffer,
+                            &params.data.0,
+                            &params.data.1.as_slice(),
+                        )
+                        .await
+                    })
+                    .await;
                 sender.send(FlashResponse::Set(FlashInterface {
                     id: params.id,
                     data: res,
@@ -274,14 +296,18 @@ async fn flash_handler(mut flash: FlashType) {
             }
             FlashRequest::Get(params) => {
                 let mut buffer = [0_u8; VALUE_BUFFER_SIZE];
-                let res = fetch_item(
-                    storage.flash(),
-                    (config_start)..(config_start + MAP_SIZE),
-                    &mut NoCache::new(),
-                    &mut buffer,
-                    &params.data,
-                )
-                .await;
+                let res = storage
+                    .with_flash_async(async |flash| {
+                        fetch_item(
+                            flash,
+                            (config_start)..(config_start + MAP_SIZE),
+                            &mut NoCache::new(),
+                            &mut buffer,
+                            &params.data,
+                        )
+                        .await
+                    })
+                    .await;
 
                 if res.is_ok() {
                     if res.as_ref().unwrap().is_some() {
@@ -307,6 +333,29 @@ async fn flash_handler(mut flash: FlashType) {
                     }));
                 }
             }
+            FlashRequest::StartLog => {
+                if log_file.is_some() {
+                    unsafe {
+                        log_file.unwrap().close();
+                    };
+                }
+                let log_exists = fs.exists(log_path);
+                if log_exists {
+                    fs.remove(log_path).unwrap();
+                }
+                let log_handle = unsafe { File::create(&fs, &mut file_alloc, log_path) }.unwrap();
+                log_handle.seek(SeekFrom::Start(0));
+                log_handle.write(&read_index.to_le_bytes());
+                log_handle.write(&write_index.to_le_bytes());
+                log_file = Some(log_handle);
+            }
+            FlashRequest::StopLog => {
+                if log_file.is_some() {
+                    unsafe { log_file.unwrap().close() };
+                    log_file = None;
+                }
+            }
+            _ => {}
         }
     }
 }

@@ -1,6 +1,13 @@
 // Implementation and code to support LittleFS2
 
+use core::alloc;
+use core::cell::{OnceCell, RefCell, RefMut};
+
 use embassy_rp::flash;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
+use heapless::pool::arc::{Arc, ArcBlock, ArcPool};
+use heapless::{arc_pool, pool};
 use littlefs2::consts::*;
 use littlefs2::driver::Storage;
 use log::{debug, error, info};
@@ -11,17 +18,40 @@ use crate::setup::flash::{FlashType, CONFIG_SIZE};
 const LFS2_REL_START: u32 = (CONFIG_SIZE - SPACE_FOR_LOGS) as u32;
 pub const LFS2_FS_OVERHEAD: u32 = 65_536;
 
+arc_pool!(FLASH_ARC_POOL: RefCell<Mutex<NoopRawMutex, FlashType>>);
+static mut ARC_BLOCK: ArcBlock<RefCell<Mutex<NoopRawMutex, FlashType>>> = ArcBlock::new();
+
 pub struct Lfs2Storage {
-    flash: FlashType,
+    arc: Arc<FLASH_ARC_POOL>,
 }
 
 impl Lfs2Storage {
     pub fn new(flash: FlashType) -> Self {
-        Self { flash }
+        FLASH_ARC_POOL.manage(unsafe { &mut ARC_BLOCK });
+        let arc = FLASH_ARC_POOL
+            .alloc(RefCell::new(Mutex::new(flash)))
+            .ok()
+            .unwrap();
+
+        Self { arc }
     }
 
-    pub fn flash(&mut self) -> &mut FlashType {
-        &mut self.flash
+    pub fn clone_with_shared_flash(&self) -> Self {
+        Self {
+            arc: self.arc.clone(),
+        }
+    }
+
+    pub fn with_flash<T, F: FnOnce(&mut FlashType) -> T>(&mut self, f: F) -> T {
+        let mut borrowed = self.arc.borrow_mut();
+        let flash = borrowed.get_mut();
+        f(flash)
+    }
+
+    pub async fn with_flash_async<T, F: AsyncFnOnce(&mut FlashType) -> T>(&mut self, f: F) -> T {
+        let mut borrowed = self.arc.borrow_mut();
+        let flash = borrowed.get_mut();
+        f(flash).await
     }
 }
 
@@ -42,7 +72,7 @@ impl Storage for Lfs2Storage {
             buf.len()
         );
         let read_result: Result<(), flash::Error> =
-            self.flash.blocking_read(LFS2_REL_START + off as u32, buf);
+            self.with_flash(|flash| flash.blocking_read(LFS2_REL_START + off as u32, buf));
         if read_result.is_err() {
             error!("Read invalid: {:?}", read_result.unwrap_err());
             return Err(littlefs2::io::Error::INVALID);
@@ -57,7 +87,8 @@ impl Storage for Lfs2Storage {
             off,
             data.len()
         );
-        let write_result = self.flash.blocking_write(LFS2_REL_START + off as u32, data);
+        let write_result =
+            self.with_flash(|flash| flash.blocking_write(LFS2_REL_START + off as u32, data));
         if write_result.is_err() {
             error!("Write invalid: {:?}", write_result.unwrap_err());
             return Err(littlefs2::io::Error::INVALID);
@@ -70,10 +101,12 @@ impl Storage for Lfs2Storage {
             "Erase Start: {}, Offset: {}, Len: {}",
             LFS2_REL_START, off, len
         );
-        let erase_result = self.flash.blocking_erase(
-            LFS2_REL_START + off as u32,
-            LFS2_REL_START + off as u32 + len as u32,
-        );
+        let erase_result = self.with_flash(|flash| {
+            flash.blocking_erase(
+                LFS2_REL_START + off as u32,
+                LFS2_REL_START + off as u32 + len as u32,
+            )
+        });
         if erase_result.is_err() {
             error!("Erase invalid: {:?}", erase_result.unwrap_err());
             return Err(littlefs2::io::Error::INVALID);
