@@ -6,6 +6,7 @@ use core::cell::{OnceCell, RefCell, RefMut};
 use embassy_rp::flash;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_time::Instant;
 use heapless::pool::arc::{Arc, ArcBlock, ArcPool};
 use heapless::{arc_pool, pool};
 use littlefs2::consts::*;
@@ -65,12 +66,12 @@ impl Storage for Lfs2Storage {
     const BLOCK_COUNT: usize = SPACE_FOR_LOGS / flash::ERASE_SIZE;
 
     fn read(&mut self, off: usize, buf: &mut [u8]) -> littlefs2::io::Result<usize> {
-        info!(
-            "Read Start: {}, Offset: {}, Len: {}",
-            LFS2_REL_START,
-            off,
-            buf.len()
-        );
+        // info!(
+        //     "Read Start: {}, Offset: {}, Len: {}",
+        //     LFS2_REL_START,
+        //     off,
+        //     buf.len()
+        // );
         let read_result: Result<(), flash::Error> =
             self.with_flash(|flash| flash.blocking_read(LFS2_REL_START + off as u32, buf));
         if read_result.is_err() {
@@ -81,12 +82,12 @@ impl Storage for Lfs2Storage {
     }
 
     fn write(&mut self, off: usize, data: &[u8]) -> littlefs2::io::Result<usize> {
-        info!(
-            "Write Start: {}, Offset: {}, Len: {}",
-            LFS2_REL_START,
-            off,
-            data.len()
-        );
+        // info!(
+        //     "Write Start: {}, Offset: {}, Len: {}",
+        //     LFS2_REL_START,
+        //     off,
+        //     data.len()
+        // );
         let write_result =
             self.with_flash(|flash| flash.blocking_write(LFS2_REL_START + off as u32, data));
         if write_result.is_err() {
@@ -97,10 +98,10 @@ impl Storage for Lfs2Storage {
     }
 
     fn erase(&mut self, off: usize, len: usize) -> littlefs2::io::Result<usize> {
-        info!(
-            "Erase Start: {}, Offset: {}, Len: {}",
-            LFS2_REL_START, off, len
-        );
+        // info!(
+        //     "Erase Start: {}, Offset: {}, Len: {}",
+        //     LFS2_REL_START, off, len
+        // );
         let erase_result = self.with_flash(|flash| {
             flash.blocking_erase(
                 LFS2_REL_START + off as u32,

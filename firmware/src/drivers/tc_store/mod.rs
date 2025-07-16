@@ -4,19 +4,20 @@
  */
 
 use core::{
-    cell::{Cell, RefCell},
+    cell::{Cell, OnceCell, RefCell},
     fmt::Debug,
     ptr::addr_of_mut,
     str::FromStr,
 };
 
 use crate::{
-    drivers::tc_store::lfs2::Lfs2Storage,
+    drivers::tc_store::lfs2::{Lfs2Storage, LFS2_FS_OVERHEAD},
     setup::flash::{FlashType, CONFIG_SIZE},
 };
 use embassy_executor::Spawner;
 use embassy_sync::{
-    blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::Mutex, watch::Watch,
+    blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::Mutex,
+    once_lock::OnceLock, watch::Watch,
 };
 use embassy_time::{Instant, Timer};
 use heapless::String;
@@ -24,6 +25,7 @@ use heapless_7::Vec;
 use littlefs2::{
     fs::{Allocation, File, FileAllocation, Filesystem},
     io::SeekFrom,
+    path,
     path::Path,
 };
 use log::{error, info, warn};
@@ -36,7 +38,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 mod lfs2;
 
-const BLACKBOX_LOGGING_PATH: &str = "blackbox.bin";
+const BLACKBOX_LOGGING_PATH: &Path = path!("blackbox.bin");
 
 // assume 75% of the database storage space will be for flight logging
 const SPACE_FOR_LOGS: usize = CONFIG_SIZE * 3 / 4;
@@ -50,7 +52,7 @@ struct FlashInterface<T> {
     data: T,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct BlackboxLogData {
     timestamp_micros: u64,
     target_rate: [f32; 3],
@@ -62,6 +64,21 @@ pub struct BlackboxLogData {
     g_force: f32,
 }
 
+static LOG_DATA_SIZE: OnceLock<usize> = OnceLock::new();
+impl BlackboxLogData {
+    fn serialized_size() -> usize {
+        LOG_DATA_SIZE
+            .get_or_init(|| {
+                postcard::serialize_with_flavor(
+                    &Self::default(),
+                    postcard::ser_flavors::Size::default(),
+                )
+                .unwrap()
+            })
+            .clone()
+    }
+}
+
 struct RawChannelPtr<R>(*mut Channel<CriticalSectionRawMutex, R, 1>);
 unsafe impl<R> Send for RawChannelPtr<R> {}
 
@@ -69,7 +86,7 @@ enum FlashRequest {
     Set(FlashInterface<(String<16>, Vec<u8, VALUE_BUFFER_SIZE>)>),
     Get(FlashInterface<String<16>>),
     StartLog,
-    Log(BlackboxLogData),
+    Log(FlashInterface<BlackboxLogData>),
     StopLog,
 }
 
@@ -84,6 +101,9 @@ enum FlashResponse {
             >,
         >,
     ),
+    StartLog,
+    Log(FlashInterface<()>),
+    StopLog,
 }
 
 static REQ_ID: Mutex<CriticalSectionRawMutex, Cell<usize>> = Mutex::new(Cell::new(0));
@@ -214,7 +234,58 @@ impl TcStore {
         }
     }
 
-    pub async fn start_log() {}
+    pub async fn start_log() {
+        FLASH_REQ_CHANNEL.send(FlashRequest::StartLog).await;
+        let mut recv = FLASH_RES_WATCH.receiver().unwrap();
+        let mut res = recv.changed().await;
+        loop {
+            match res.clone() {
+                FlashResponse::StartLog => {
+                    return;
+                }
+                _ => {}
+            }
+            res = recv.changed().await;
+        }
+    }
+
+    pub async fn stop_log() {
+        FLASH_REQ_CHANNEL.send(FlashRequest::StopLog).await;
+        let mut recv = FLASH_RES_WATCH.receiver().unwrap();
+        let mut res = recv.changed().await;
+        loop {
+            match res.clone() {
+                FlashResponse::StopLog => {
+                    return;
+                }
+                _ => {}
+            }
+            res = recv.changed().await;
+        }
+    }
+
+    pub async fn log(log_data: BlackboxLogData) {
+        let req_id = Self::get_req_id().await;
+        FLASH_REQ_CHANNEL
+            .send(FlashRequest::Log(FlashInterface {
+                id: req_id,
+                data: log_data,
+            }))
+            .await;
+        let mut recv = FLASH_RES_WATCH.receiver().unwrap();
+        let mut res = recv.changed().await;
+        loop {
+            match res.clone() {
+                FlashResponse::Log(res) => {
+                    if res.id == req_id {
+                        return;
+                    }
+                }
+                _ => {}
+            }
+            res = recv.changed().await;
+        }
+    }
 }
 
 fn setup_lfs2<'a>(
@@ -248,6 +319,61 @@ fn setup_lfs2<'a>(
     }
 }
 
+// (read_index, write_index)
+async fn get_log_indices(storage: &mut Lfs2Storage) -> (u32, u32) {
+    let config_start = unsafe { &__config_start as *const u32 as u32 } - 0x10000000;
+    let mut buffer = [0_u8; VALUE_BUFFER_SIZE];
+    let res = storage
+        .with_flash_async(async |flash| {
+            fetch_item(
+                flash,
+                (config_start)..(config_start + MAP_SIZE),
+                &mut NoCache::new(),
+                &mut buffer,
+                &String::<16>::from_str("LOG_INDICES").unwrap(),
+            )
+            .await
+        })
+        .await;
+    let data: &[u8] = res.unwrap().unwrap_or_else(|| {
+        let a: &[u8] = &[0; 8];
+        a
+    });
+    (
+        u32::from_le_bytes(data[..4].try_into().unwrap()),
+        u32::from_le_bytes(data[4..8].try_into().unwrap()),
+    )
+}
+
+async fn set_log_indices(storage: &mut Lfs2Storage, read_index: u32, write_index: u32) {
+    let config_start = unsafe { &__config_start as *const u32 as u32 } - 0x10000000;
+    let mut buffer = [0_u8; VALUE_BUFFER_SIZE];
+    let read_bytes = read_index.to_le_bytes();
+    let write_bytes = write_index.to_le_bytes();
+    let res = storage
+        .with_flash_async(async |flash| {
+            store_item(
+                flash,
+                (config_start)..(config_start + MAP_SIZE),
+                &mut NoCache::new(),
+                &mut buffer,
+                &String::<16>::from_str("LOG_INDICES").unwrap(),
+                &[
+                    read_bytes[0],
+                    read_bytes[1],
+                    read_bytes[2],
+                    read_bytes[3],
+                    write_bytes[0],
+                    write_bytes[1],
+                    write_bytes[2],
+                    write_bytes[3],
+                ],
+            )
+            .await
+        })
+        .await;
+}
+
 #[embassy_executor::task]
 async fn flash_handler(mut flash: FlashType) {
     Timer::after_secs(2).await;
@@ -264,11 +390,9 @@ async fn flash_handler(mut flash: FlashType) {
     let config_start = unsafe { &__config_start as *const u32 as u32 } - 0x10000000;
     let sender = FLASH_RES_WATCH.sender();
 
-    let mut log_path = Path::from_str_with_nul(BLACKBOX_LOGGING_PATH).unwrap();
     let mut log_file: Option<File<Lfs2Storage>> = None;
-    let mut write_index: u32 = 0;
-    let mut read_index: u32 = 0;
-    const HEADER_LENGTH: usize = 8;
+    const HEADER_LENGTH: u32 = 0;
+    let (mut read_index, mut write_index) = get_log_indices(&mut storage).await;
 
     loop {
         let request = FLASH_REQ_CHANNEL.receive().await;
@@ -339,21 +463,51 @@ async fn flash_handler(mut flash: FlashType) {
                         log_file.unwrap().close();
                     };
                 }
-                let log_exists = fs.exists(log_path);
+                let log_exists = fs.exists(BLACKBOX_LOGGING_PATH);
                 if log_exists {
-                    fs.remove(log_path).unwrap();
+                    fs.remove(BLACKBOX_LOGGING_PATH).unwrap();
                 }
-                let log_handle = unsafe { File::create(&fs, &mut file_alloc, log_path) }.unwrap();
+                let log_handle =
+                    unsafe { File::create(&fs, &mut file_alloc, BLACKBOX_LOGGING_PATH) }.unwrap();
                 log_handle.seek(SeekFrom::Start(0));
+                read_index = HEADER_LENGTH;
+                write_index = HEADER_LENGTH;
                 log_handle.write(&read_index.to_le_bytes());
                 log_handle.write(&write_index.to_le_bytes());
                 log_file = Some(log_handle);
+
+                sender.send(FlashResponse::StartLog);
+            }
+            FlashRequest::Log(data) => {
+                let mut buf = [0_u8; 256];
+                let data_bytes = postcard::to_slice(&data.data, &mut buf).unwrap();
+
+                if let Some(log_handle) = &log_file {
+                    log_handle.seek(SeekFrom::Start(write_index)).unwrap();
+                    log_handle.write(&data_bytes).unwrap();
+                    set_log_indices(&mut storage, read_index, write_index).await;
+                }
+
+                write_index += data_bytes.len() as u32;
+                if write_index > SPACE_FOR_LOGS as u32 - LFS2_FS_OVERHEAD {
+                    write_index = HEADER_LENGTH;
+                }
+                if read_index < write_index {
+                    read_index = write_index;
+                }
+
+                sender.send(FlashResponse::Log(FlashInterface {
+                    id: data.id,
+                    data: (),
+                }));
             }
             FlashRequest::StopLog => {
                 if log_file.is_some() {
                     unsafe { log_file.unwrap().close() };
                     log_file = None;
                 }
+
+                sender.send(FlashResponse::StopLog);
             }
             _ => {}
         }

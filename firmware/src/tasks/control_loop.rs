@@ -5,7 +5,10 @@ use pid::Pid;
 
 use crate::{
     consts::UPDATE_LOOP_FREQUENCY,
-    drivers::elrs::Elrs,
+    drivers::{
+        elrs::Elrs,
+        tc_store::{BlackboxLogData, TcStore},
+    },
     global::{
         ARMED_WATCH, CONTROL_LOOP_FREQUENCY_SIGNAL, CONTROL_LOOP_VALUES, CURRENT_ALTITUDE,
         ELRS_SIGNAL, IMU_SIGNAL,
@@ -86,6 +89,7 @@ pub async fn control_loop() {
     let armed_sender = ARMED_WATCH.sender();
 
     let mut should_use_position_hold = false;
+    let mut since_last_log = 0;
 
     loop {
         let new_since_last_loop = YieldingTimer::after_micros(
@@ -148,6 +152,10 @@ pub async fn control_loop() {
                 pid_pitch.reset_integral_term();
                 pid_roll.reset_integral_term();
                 // rate_errors = imu_values;
+                TcStore::start_log().await;
+            }
+            if armed && !new_armed {
+                TcStore::stop_log().await;
             }
             armed = new_armed;
             armed_sender.send(armed);
@@ -215,6 +223,12 @@ pub async fn control_loop() {
             .clamp(0.0, 1.0);
         let t4 = (current_throttle_value - pid_pitch_output - pid_roll_output - pid_yaw_output)
             .clamp(0.0, 1.0);
+
+        if armed && since_last_log > (UPDATE_LOOP_FREQUENCY / 20.0) as u32 {
+            TcStore::log(BlackboxLogData::default()).await;
+            since_last_log = 0;
+        }
+        since_last_log += 1;
 
         // TODO: implement return to home like stuff in this case scenario
         // if signal to controller is lost, turn off motors for safety
