@@ -4,5 +4,6 @@ pub mod blinker;
 pub mod calibrators;
 pub mod kalman;
 pub mod moving_average;
+pub mod other_task_runner;
 pub mod sorting;
 pub mod yielding_timer;
