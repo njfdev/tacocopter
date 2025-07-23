@@ -7,7 +7,7 @@ use crate::{
     consts::UPDATE_LOOP_FREQUENCY,
     drivers::{
         elrs::Elrs,
-        tc_store::{BlackboxLogData, TcStore},
+        tc_store::blackbox::{BlackboxLogData, TcBlackbox},
     },
     global::{
         ARMED_WATCH, CONTROL_LOOP_FREQUENCY_SIGNAL, CONTROL_LOOP_VALUES, CURRENT_ALTITUDE,
@@ -152,10 +152,10 @@ pub async fn control_loop() {
                 pid_pitch.reset_integral_term();
                 pid_roll.reset_integral_term();
                 // rate_errors = imu_values;
-                TcStore::start_log().await;
+                TcBlackbox::start_log().await;
             }
             if armed && !new_armed {
-                TcStore::stop_log().await;
+                TcBlackbox::stop_log().await;
             }
             armed = new_armed;
             armed_sender.send(armed);
@@ -225,7 +225,7 @@ pub async fn control_loop() {
             .clamp(0.0, 1.0);
 
         if armed && since_last_log > (UPDATE_LOOP_FREQUENCY / 20.0) as u32 {
-            TcStore::log(BlackboxLogData::default()).await;
+            TcBlackbox::log(BlackboxLogData::default()).await;
             since_last_log = 0;
         }
         since_last_log += 1;
