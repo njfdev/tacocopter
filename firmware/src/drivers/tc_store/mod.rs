@@ -73,7 +73,7 @@ enum FlashResponse {
     ),
 }
 
-other_task_runner_setup!(async, FLASH, FlashRequest, FlashResponse);
+other_task_runner_setup!(FLASH, FlashRequest, FlashResponse);
 
 pub trait TcKeyValueStoreData: Serialize + DeserializeOwned + Default + Clone + Debug {
     fn key() -> String<16>;

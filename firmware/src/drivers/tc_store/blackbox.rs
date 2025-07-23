@@ -31,7 +31,7 @@ enum BlackboxResponse {
     StopLog(()),
 }
 
-other_task_runner_setup!(async, BLACKBOX, BlackboxRequest, BlackboxResponse);
+other_task_runner_setup!(BLACKBOX, BlackboxRequest, BlackboxResponse);
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct BlackboxLogData {
@@ -78,7 +78,7 @@ impl TcBlackbox {
 
         let mut data_bytes: Vec<u8, LOG_DATA_SIZE> = postcard::to_vec(&data).unwrap();
 
-        data_bytes.extend([0; size_of::<BlackboxLogData>()]);
+        data_bytes.extend([0; LOG_DATA_SIZE - size_of::<BlackboxLogData>()]);
 
         let checksum = Crc::<u64>::new(&CRC_64_ECMA_182).checksum(&data_bytes);
 
