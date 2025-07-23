@@ -123,7 +123,7 @@ impl TcStore {
 
     pub async fn set<T: TcKeyValueStoreData>(data: T) {
         let data_bytes: Vec<u8, VALUE_BUFFER_SIZE> = postcard::to_vec(&data).unwrap();
-        let res = flash_send_request!(Set, (T::key(), data_bytes));
+        let res = flash_call_request!(Set, (T::key(), data_bytes));
         if res.is_err() {
             error!(
                 "Error setting value for {}: {:?}",
@@ -136,7 +136,7 @@ impl TcStore {
     }
 
     pub async fn get<T: TcKeyValueStoreData>() -> T {
-        let res = flash_send_request!(Get, T::key());
+        let res = flash_call_request!(Get, T::key());
         match res {
             Ok(val_res) => {
                 if val_res.is_some() {

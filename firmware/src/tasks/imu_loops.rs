@@ -1,3 +1,4 @@
+use embassy_futures::yield_now;
 use embassy_rp::{
     i2c::{Async, I2c},
     peripherals::I2C1,
@@ -94,7 +95,7 @@ pub async fn mpu6050_processor_loop() {
 
         // if calibration needs to occur, interrupt the loop early for calibration step
         if START_CALIBRATION_SIGNAL.signaled() {
-            calibration_type = Some(START_CALIBRATION_SIGNAL.try_take().unwrap())
+            calibration_type = Some(START_CALIBRATION_SIGNAL.try_take().unwrap());
         }
         if calibration_type.is_some() {
             match calibration_type.clone().unwrap() {

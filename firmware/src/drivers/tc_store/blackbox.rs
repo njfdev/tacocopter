@@ -7,9 +7,10 @@ use crc::{Algorithm, Crc, CRC_64_ECMA_182};
 use embassy_embedded_hal::flash;
 use embassy_executor::Spawner;
 use embassy_rp::flash::ERASE_SIZE;
+use embassy_time::Timer;
 use embedded_storage_async::nor_flash::NorFlash;
 use heapless_7::Vec;
-use log::error;
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use static_assertions::const_assert;
 
@@ -53,6 +54,7 @@ pub struct TcBlackbox {
 
 impl TcBlackbox {
     pub fn init(spawner: &Spawner, storage: &FlashStorage, flash_start: u32, flash_len: u32) {
+        // let flash_len: u32 = 4096;
         spawner
             .spawn(blackbox_handler(
                 Self {
@@ -70,11 +72,7 @@ impl TcBlackbox {
     }
 
     pub async fn log_implementation(&mut self, storage: &FlashStorage, data: BlackboxLogData) {
-        let entry_index = if self.cur_entry == 0 {
-            0
-        } else {
-            self.flash_len % (self.cur_entry * LOG_ENTRY_SIZE)
-        };
+        let entry_index = self.cur_entry * LOG_ENTRY_SIZE;
 
         let mut data_bytes: Vec<u8, LOG_DATA_SIZE> = postcard::to_vec(&data).unwrap();
 
@@ -86,15 +84,14 @@ impl TcBlackbox {
 
         let res = storage
             .with_flash_async(async |flash| {
-                if entry_index % ERASE_SIZE as u32 == 0 {
-                    flash
-                        .erase(
-                            self.flash_start + entry_index,
-                            self.flash_start + entry_index + ERASE_SIZE as u32,
-                        )
-                        .await;
-                }
-
+                // if entry_index % ERASE_SIZE as u32 == 0 {
+                //     flash
+                //         .erase(
+                //             self.flash_start + entry_index,
+                //             self.flash_start + entry_index + ERASE_SIZE as u32,
+                //         )
+                //         .await;
+                // }
                 flash
                     .write(self.flash_start + entry_index as u32, &data_bytes)
                     .await
@@ -103,18 +100,24 @@ impl TcBlackbox {
 
         if res.is_err() {
             error!("Blackbox error: {:?}", res.unwrap_err());
+        } else {
+            self.cur_entry += 1;
+            if self.cur_entry * LOG_ENTRY_SIZE > self.flash_len {
+                self.cur_entry = 0;
+            }
         }
     }
 
     pub async fn start_log() {
-        let _res = blackbox_send_request!(StartLog, ());
+        let _res = blackbox_call_request!(StartLog, ());
     }
 
     pub async fn stop_log() {
-        let _res = blackbox_send_request!(StopLog, ());
+        let _res = blackbox_call_request!(StopLog, ());
     }
 
     pub async fn log(log_data: BlackboxLogData) {
+        // use send_request to not wait on the data logged (let it happen in the background)
         let res = blackbox_send_request!(Log, log_data);
     }
 }

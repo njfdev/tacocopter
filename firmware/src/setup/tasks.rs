@@ -61,6 +61,9 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
     let _ = spawner.spawn(control_loop());
     let _ = spawner.spawn(position_hold_loop());
     spawner
+        .spawn(usb_updater(p.usb_bulk_in, p.usb_bulk_out))
+        .unwrap();
+    spawner
         .spawn(calc_ultrasonic_height_agl(
             p.ultrasonic_trig,
             p.ultrasonic_echo,
@@ -81,10 +84,6 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
             executor.run(|spawner| {
                 spawner.spawn(mpu6050_fetcher_loop(p.mpu)).unwrap();
                 spawner.spawn(mpu6050_processor_loop()).unwrap();
-
-                spawner
-                    .spawn(usb_updater(p.usb_bulk_in, p.usb_bulk_out))
-                    .unwrap();
                 spawner
                     .spawn(elrs_transmitter(p.elrs, p.pm02d_interface))
                     .unwrap();

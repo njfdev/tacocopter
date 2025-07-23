@@ -34,8 +34,9 @@ macro_rules! other_task_runner_setup {
                 req_id
             }
 
+            // This sends the request and waits for the response
             #[macro_export]
-            macro_rules! [<$prefix:lower _send_request>] {
+            macro_rules! [<$prefix:lower _call_request>] {
                 ($variant:tt, $data:expr) => {
                     (async || {
                         let req_id = [<$prefix:lower _get_req_id>]().await;
@@ -58,6 +59,22 @@ macro_rules! other_task_runner_setup {
                                     }
                                 }
                             }
+                        }
+                    })().await
+                }
+            }
+
+            // this sends the request and doesn't wait for the response
+            #[macro_export]
+            macro_rules! [<$prefix:lower _send_request>] {
+                ($variant:tt, $data:expr) => {
+                    (async || {
+                        if ![<$prefix:upper _REQ_CHANNEL>].is_full() {
+                            [<$prefix:upper _REQ_CHANNEL>]
+                                .send(TaskInterface {
+                                    id: [<$prefix:lower _get_req_id>]().await,
+                                    data: $req_enum::$variant($data)
+                                }).await;
                         }
                     })().await
                 }
