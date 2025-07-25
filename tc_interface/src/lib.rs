@@ -2,13 +2,14 @@
 
 use core::fmt::Debug;
 use core::prelude::rust_2024::derive;
-use heapless::String;
+use heapless::{String, Vec};
 use serde::{Deserialize, Serialize};
 
 pub const TC_VID: u16 = 0x8216;
 pub const TC_PID: u16 = 0x1248;
 
 pub const LOG_SEGMENT_SIZE: usize = 54;
+pub const BLACKBOX_SEGMENT_SIZE: usize = 60;
 
 //----------------------------------------------------------//
 //--------------- Flight Controller Messages ---------------//
@@ -77,6 +78,13 @@ pub enum SensorCalibrationType {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum BlackboxInfoType {
+    Length(u32),
+    SerializedSegment(Vec<u8, BLACKBOX_SEGMENT_SIZE>),
+    DownloadFinished(u32),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum TCMessage {
     // if true, then configurator should wait for more received packets
     // before sending data, otherwise, it is safe to send a packet.
@@ -87,6 +95,7 @@ pub enum TCMessage {
     SensorCalibration(SensorCalibrationType),
     ElrsChannels([u16; 16]),
     Log(LogData),
+    BlackboxInfo(BlackboxInfoType),
 }
 
 unsafe impl Send for ImuSensorData {}
@@ -103,4 +112,5 @@ pub struct StartGyroCalibrationData {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ConfiguratorMessage {
     StartGyroCalibration(StartGyroCalibrationData),
+    StartBlackboxDownload,
 }

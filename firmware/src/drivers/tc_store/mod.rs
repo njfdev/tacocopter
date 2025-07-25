@@ -42,21 +42,6 @@ const VALUE_BUFFER_SIZE: usize = 1024;
 // assume remaining database storage space will be for flight logging
 const KEY_STORE_SIZE: u32 = 0x10000;
 
-static LOG_DATA_SIZE: OnceLock<usize> = OnceLock::new();
-impl BlackboxLogData {
-    fn serialized_size() -> usize {
-        LOG_DATA_SIZE
-            .get_or_init(|| {
-                postcard::serialize_with_flavor(
-                    &Self::default(),
-                    postcard::ser_flavors::Size::default(),
-                )
-                .unwrap()
-            })
-            .clone()
-    }
-}
-
 enum FlashRequest {
     Set((String<16>, Vec<u8, VALUE_BUFFER_SIZE>)),
     Get(String<16>),
@@ -225,8 +210,8 @@ async fn flash_handler(mut flash: FlashType, spawner: Spawner) {
     TcBlackbox::init(
         &spawner,
         &storage,
-        config_start + KEY_STORE_SIZE,
-        config_start + CONFIG_SIZE as u32,
+        (config_start + KEY_STORE_SIZE) as usize,
+        config_start as usize + CONFIG_SIZE,
     );
 
     flash_request_handler!({

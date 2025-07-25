@@ -8,13 +8,16 @@ use embassy_rp::{
 use embassy_time::Instant;
 use embassy_usb::driver::{EndpointIn, EndpointOut};
 use embassy_usb::UsbDevice;
+use heapless_7::Vec;
 use postcard::from_bytes;
 use tc_interface::{
     ConfiguratorMessage, ImuSensorData, SensorCalibrationData, SensorData, StateData, TCMessage,
+    BLACKBOX_SEGMENT_SIZE,
 };
 
 use crate::{
     consts::USB_LOGGER_RATE,
+    drivers::tc_store::blackbox::{BlackboxLogData, TcBlackbox, DOUBLE_LOG_DATA_SIZE},
     global::{
         CalibrationSensorType, BOOT_TIME, CALIBRATION_FEEDBACK_SIGNAL,
         CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_FETCH_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL,
@@ -184,6 +187,56 @@ pub async fn usb_updater(
                         //         break;
                         //     }
                         // }
+                    }
+                    ConfiguratorMessage::StartBlackboxDownload => {
+                        let mut data_buf = Vec::<u8, DOUBLE_LOG_DATA_SIZE>::new();
+                        let mut total_log_count: usize = 0;
+                        loop {
+                            let log_res = TcBlackbox::collect_logs_raw().await;
+
+                            if log_res.is_some() {
+                                data_buf.extend(log_res.clone().unwrap());
+                                total_log_count += 1;
+                            }
+
+                            while data_buf.len() >= BLACKBOX_SEGMENT_SIZE {
+                                let section_to_send =
+                                    heapless::Vec::<u8, BLACKBOX_SEGMENT_SIZE>::from_slice(
+                                        &data_buf[0..BLACKBOX_SEGMENT_SIZE],
+                                    )
+                                    .unwrap();
+                                data_buf = Vec::from_slice(
+                                    &data_buf[BLACKBOX_SEGMENT_SIZE..data_buf.len()],
+                                )
+                                .unwrap();
+
+                                postcard::to_slice(
+                                    &TCMessage::BlackboxInfo(
+                                        tc_interface::BlackboxInfoType::SerializedSegment(
+                                            section_to_send,
+                                        ),
+                                    ),
+                                    &mut buffer,
+                                )
+                                .unwrap();
+                                usb_send.write(&buffer).await.unwrap();
+                            }
+
+                            if log_res.is_none() {
+                                break;
+                            }
+                        }
+
+                        postcard::to_slice(
+                            &TCMessage::BlackboxInfo(
+                                tc_interface::BlackboxInfoType::DownloadFinished(
+                                    total_log_count as u32,
+                                ),
+                            ),
+                            &mut buffer,
+                        )
+                        .unwrap();
+                        usb_send.write(&buffer).await.unwrap();
                     }
                 }
             }

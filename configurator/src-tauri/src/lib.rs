@@ -18,6 +18,7 @@ use tc_interface::{
 struct AppState {
     is_usb_loop_running: bool,
     start_gyro_calibration: bool,
+    start_blackbox_download: bool,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -30,7 +31,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             start_usb_loop,
-            start_gyro_calibration
+            start_gyro_calibration,
+            start_blackbox_download
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -62,6 +64,14 @@ async fn start_gyro_calibration(app: AppHandle) -> Result<(), ()> {
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
     state.start_gyro_calibration = true;
+    Ok(())
+}
+
+#[tauri::command]
+async fn start_blackbox_download(app: AppHandle) -> Result<(), ()> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    state.start_blackbox_download = true;
     Ok(())
 }
 
@@ -134,6 +144,24 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
             println!("Start Gyro Calibration USB Result: {:#?}", n_result);
         }
 
+        // if needing to start blackbox download, then do it
+        let should_start_blackbox_download: bool;
+        {
+            let state = app.state::<Mutex<AppState>>();
+            let mut state = state.lock().unwrap();
+            should_start_blackbox_download = state.start_blackbox_download;
+            state.start_blackbox_download = false;
+        }
+        if should_start_blackbox_download {
+            postcard::to_slice(&ConfiguratorMessage::StartBlackboxDownload, &mut buf).unwrap();
+
+            let n_result: Result<usize, String> = handle
+                .write_bulk(out_endpoint, &mut buf, std::time::Duration::from_secs(999))
+                .map_err(|e| e.to_string());
+
+            println!("Start Blackbox Download USB Result: {:#?}", n_result);
+        }
+
         // println!("Waiting for data!");
         let n_result = handle
             .read_bulk(in_endpoint, &mut buf, std::time::Duration::from_secs(999))
@@ -171,6 +199,9 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
                     }
                     TCMessage::Log(data) => {
                         log_buffer.push(data);
+                    }
+                    TCMessage::BlackboxInfo(data) => {
+                        println!("Blackbox Info: {:?}", data);
                     }
                     _ => {
                         app.emit("tc_data", message).unwrap();
