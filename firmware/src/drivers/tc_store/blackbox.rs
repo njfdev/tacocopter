@@ -42,14 +42,14 @@ other_task_runner_setup!(BLACKBOX, BlackboxRequest, BlackboxResponse);
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct BlackboxLogData {
-    timestamp_micros: u64,
-    target_rate: [f32; 3],
-    actual_rate: [f32; 3],
-    p_term: [f32; 3],
-    i_term: [f32; 3],
-    d_term: [f32; 3],
-    pid_output: [f32; 3],
-    g_force: f32,
+    pub timestamp_micros: u64,
+    pub target_rate: [f32; 3],
+    pub actual_rate: [f32; 3],
+    pub p_term: [f32; 3],
+    pub i_term: [f32; 3],
+    pub d_term: [f32; 3],
+    pub pid_output: [f32; 3],
+    pub g_force: f32,
 }
 
 static BLACKBOX_SERIALIZED_DATA_SIZE: OnceLock<usize> = OnceLock::new();
@@ -103,24 +103,27 @@ impl TcBlackbox {
 
         let mut data_bytes: Vec<u8, LOG_ENTRY_SIZE> = postcard::to_vec(&data).unwrap();
 
+        info!("Address: {}", (self.flash_start + entry_index) as u32);
+        info!("Logged bytes: {:?}", data_bytes);
+
         for _ in data_bytes.len()..LOG_DATA_SIZE {
             data_bytes.push(0).unwrap();
         }
 
         let checksum = Crc::<u64>::new(&BLACKBOX_CRC_ALGO).checksum(&data_bytes);
-
+        info!("Checksum: {}", checksum);
         data_bytes.extend(checksum.to_le_bytes());
 
         let res = storage
             .with_flash_async(async |flash| {
-                // if entry_index % ERASE_SIZE as u32 == 0 {
-                //     flash
-                //         .erase(
-                //             self.flash_start + entry_index,
-                //             self.flash_start + entry_index + ERASE_SIZE as u32,
-                //         )
-                //         .await;
-                // }
+                if entry_index % ERASE_SIZE == 0 {
+                    flash
+                        .erase(
+                            (self.flash_start + entry_index) as u32,
+                            (self.flash_start + entry_index + ERASE_SIZE) as u32,
+                        )
+                        .await;
+                }
                 flash
                     .write((self.flash_start + entry_index) as u32, &data_bytes)
                     .await
@@ -149,6 +152,7 @@ impl TcBlackbox {
                 }
 
                 let address = self.flash_start + self.collect_index * LOG_ENTRY_SIZE;
+                info!("Address: {}", address);
                 self.collect_index += 1;
 
                 let log_bytes = &mut [0u8; LOG_ENTRY_SIZE as usize];
@@ -161,8 +165,10 @@ impl TcBlackbox {
                     );
                     return None;
                 }
+                info!("Read bytes: {:?}", log_bytes);
 
-                let expected_checksum = Crc::<u64>::new(&BLACKBOX_CRC_ALGO).checksum(&*log_bytes);
+                let expected_checksum =
+                    Crc::<u64>::new(&BLACKBOX_CRC_ALGO).checksum(&log_bytes[..LOG_DATA_SIZE]);
                 let checksum = u64::from_le_bytes(
                     log_bytes[LOG_DATA_SIZE..LOG_ENTRY_SIZE as usize]
                         .try_into()

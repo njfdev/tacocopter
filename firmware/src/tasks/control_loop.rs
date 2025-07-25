@@ -1,6 +1,7 @@
 use core::f32::consts::PI;
 
 use embassy_time::Instant;
+use micromath::F32Ext;
 use pid::Pid;
 
 use crate::{
@@ -10,8 +11,8 @@ use crate::{
         tc_store::blackbox::{BlackboxLogData, TcBlackbox},
     },
     global::{
-        ARMED_WATCH, CONTROL_LOOP_FREQUENCY_SIGNAL, CONTROL_LOOP_VALUES, CURRENT_ALTITUDE,
-        ELRS_SIGNAL, IMU_SIGNAL,
+        ARMED_WATCH, BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, CONTROL_LOOP_VALUES,
+        CURRENT_ALTITUDE, ELRS_SIGNAL, IMU_SIGNAL,
     },
     tools::yielding_timer::YieldingTimer,
 };
@@ -72,9 +73,10 @@ pub async fn control_loop() {
     let mut pitch_input;
 
     // imu stuff
-    let mut rate_errors = (0.0, 0.0, 0.0);
     let mut _imu_values = (0.0, 0.0, 0.0);
     let mut imu_rates = (0.0, 0.0, 0.0);
+    let mut target_rates = (0.0, 0.0, 0.0);
+    let mut rate_errors = (0.0, 0.0, 0.0);
 
     // altitude stuff
     let mut altitude_receiver = CURRENT_ALTITUDE.receiver().unwrap();
@@ -90,6 +92,8 @@ pub async fn control_loop() {
 
     let mut should_use_position_hold = false;
     let mut since_last_log = 0;
+
+    let mut g_force = 1.0;
 
     loop {
         let new_since_last_loop = YieldingTimer::after_micros(
@@ -141,6 +145,10 @@ pub async fn control_loop() {
                 imu_recv_values.0 .2,
             );
             _imu_values = imu_recv_values.1;
+            g_force = (imu_recv_values.2 .0.powi(2)
+                + imu_recv_values.2 .1.powi(2)
+                + imu_recv_values.2 .2.powi(2))
+            .sqrt();
         }
 
         let chnls_recv = ELRS_SIGNAL.try_take();
@@ -172,18 +180,21 @@ pub async fn control_loop() {
             yaw_input = Elrs::elrs_input_to_percent(chnls[0], Some(0.01)) * MAX_ACRO_RATE;
             roll_input = Elrs::elrs_input_to_percent(chnls[3], Some(0.01)) * MAX_ACRO_RATE;
             pitch_input = Elrs::elrs_input_to_percent(chnls[1], Some(0.01)) * MAX_ACRO_RATE;
-            rate_errors.0 = pitch_input + imu_rates.0;
-            rate_errors.1 = -roll_input + imu_rates.1;
-            rate_errors.2 = yaw_input + imu_rates.2;
+            target_rates.0 = -pitch_input;
+            target_rates.1 = roll_input;
+            target_rates.2 = -yaw_input;
+            rate_errors.0 = imu_rates.0 - target_rates.0;
+            rate_errors.1 = imu_rates.1 - target_rates.1;
+            rate_errors.2 = imu_rates.2 - target_rates.2;
             since_last_elrs_update = Instant::now();
         }
 
         // tc_println!("Position hold? {}", position_hold);
 
         // calc pid
-        let pid_pitch_output = pid_pitch.next_control_output(rate_errors.0).output;
-        let pid_roll_output = pid_roll.next_control_output(rate_errors.1).output;
-        let pid_yaw_output = pid_yaw.next_control_output(rate_errors.2).output;
+        let pid_pitch_output = pid_pitch.next_control_output(rate_errors.0);
+        let pid_roll_output = pid_roll.next_control_output(rate_errors.1);
+        let pid_yaw_output = pid_yaw.next_control_output(rate_errors.2);
 
         let mut pid_vs_output = 0.0;
         let new_should_use_position_hold = position_hold
@@ -215,17 +226,38 @@ pub async fn control_loop() {
             throttle_input
         };
 
-        let t1 = (current_throttle_value + pid_pitch_output + pid_roll_output - pid_yaw_output)
+        let t1 = (current_throttle_value + pid_pitch_output.output + pid_roll_output.output
+            - pid_yaw_output.output)
             .clamp(0.0, 1.0);
-        let t2 = (current_throttle_value + pid_pitch_output - pid_roll_output + pid_yaw_output)
+        let t2 = (current_throttle_value + pid_pitch_output.output - pid_roll_output.output
+            + pid_yaw_output.output)
             .clamp(0.0, 1.0);
-        let t3 = (current_throttle_value - pid_pitch_output + pid_roll_output + pid_yaw_output)
+        let t3 = (current_throttle_value - pid_pitch_output.output
+            + pid_roll_output.output
+            + pid_yaw_output.output)
             .clamp(0.0, 1.0);
-        let t4 = (current_throttle_value - pid_pitch_output - pid_roll_output - pid_yaw_output)
+        let t4 = (current_throttle_value
+            - pid_pitch_output.output
+            - pid_roll_output.output
+            - pid_yaw_output.output)
             .clamp(0.0, 1.0);
 
         if armed && since_last_log > (UPDATE_LOOP_FREQUENCY / 20.0) as u32 {
-            TcBlackbox::log(BlackboxLogData::default()).await;
+            TcBlackbox::log(BlackboxLogData {
+                timestamp_micros: BOOT_TIME.get().elapsed().as_micros(),
+                target_rate: target_rates.try_into().unwrap(),
+                actual_rate: imu_rates.try_into().unwrap(),
+                p_term: [pid_pitch_output.p, pid_roll_output.p, pid_yaw_output.p],
+                i_term: [pid_pitch_output.i, pid_roll_output.i, pid_yaw_output.i],
+                d_term: [pid_pitch_output.d, pid_roll_output.d, pid_yaw_output.d],
+                pid_output: [
+                    pid_pitch_output.output,
+                    pid_roll_output.output,
+                    pid_yaw_output.output,
+                ],
+                g_force: g_force,
+            })
+            .await;
             since_last_log = 0;
         }
         since_last_log += 1;
