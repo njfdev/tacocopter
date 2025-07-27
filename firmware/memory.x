@@ -5,11 +5,11 @@ MEMORY {
      * 2 MiB is a safe default here, although a Pico 2 has 4 MiB.
      * In our case, 1 MiB is used to give more room for the 2 MiB key-value db store.
      */
-    FLASH : ORIGIN = 0x10000000, LENGTH = 2048K
+    FLASH : ORIGIN = 0x10000000, LENGTH = 256K
     /*
      * The area for our DB store, after the flash region
      */
-    CONFIG : ORIGIN = 0x10200000, LENGTH = 2048K
+    CONFIG : ORIGIN = 0x10200000, LENGTH = 3840K
     /*
      * RAM consists of 8 banks, SRAM0-SRAM7, with a striped mapping.
      * This is usually good for performance, as it distributes load on
@@ -42,7 +42,7 @@ SECTIONS {
 } INSERT AFTER .vector_table;
 
 /* move .text to start /after/ the boot info */
-_stext = ADDR(.start_block) + SIZEOF(.start_block);
+/* _stext = ADDR(.start_block) + SIZEOF(.start_block); */
 
 SECTIONS {
     /* ### Picotool 'Binary Info' Entries

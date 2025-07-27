@@ -41,7 +41,7 @@ target = "thumbv8m.main-none-eabihf"
 #   secondary linker script. This is required to make defmt_rtt work.
 rustflags = [
     "-C", "link-arg=--nmagic",
-    "-C", "link-arg=-Tlink.x",
+    "-C", "link-arg=-Tlink_ram_cortex_m.x",
     "-C", "link-arg=-Tdefmt.x",
     "-C", "target-cpu=cortex-m33",
 ]
