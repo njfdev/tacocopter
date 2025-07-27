@@ -37,7 +37,7 @@ mod storage;
 
 const BLACKBOX_LOGGING_PATH: &Path = path!("blackbox.bin");
 
-const VALUE_BUFFER_SIZE: usize = 1024;
+const VALUE_BUFFER_SIZE: usize = 256;
 
 // assume remaining database storage space will be for flight logging
 const KEY_STORE_SIZE: u32 = 0x10000;
@@ -58,7 +58,7 @@ enum FlashResponse {
     ),
 }
 
-other_task_runner_setup!(FLASH, FlashRequest, FlashResponse);
+other_task_runner_setup!(FLASH, FlashRequest, FlashResponse, 32);
 
 pub trait TcKeyValueStoreData: Serialize + DeserializeOwned + Default + Clone + Debug {
     fn key() -> String<16>;

@@ -13,7 +13,10 @@ use embassy_time::Instant;
 use heapless::Vec;
 use tc_interface::StartGyroCalibrationData;
 
-const MAX_CALIBRATION_STEPS: usize = 20000;
+use crate::consts::UPDATE_LOOP_FREQUENCY;
+
+// allows for 10s of calibration at the update frequency with a little bit of a buffer
+const MAX_CALIBRATION_STEPS: usize = (UPDATE_LOOP_FREQUENCY * 10.5) as usize;
 
 pub struct GyroCalibrator {
     data_points: Vec<(f32, f32, f32), MAX_CALIBRATION_STEPS>,

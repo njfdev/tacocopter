@@ -38,7 +38,7 @@ enum BlackboxResponse {
     CollectRawLogs(Option<Vec<u8, LOG_DATA_SIZE>>),
 }
 
-other_task_runner_setup!(BLACKBOX, BlackboxRequest, BlackboxResponse);
+other_task_runner_setup!(BLACKBOX, BlackboxRequest, BlackboxResponse, 128);
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct BlackboxLogData {

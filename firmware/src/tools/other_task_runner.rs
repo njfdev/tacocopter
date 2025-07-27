@@ -9,7 +9,7 @@ pub struct TaskInterface<T> {
 
 #[macro_export]
 macro_rules! other_task_runner_setup {
-    ($prefix:ident, $req_enum:ty, $res_enum:ty) => {
+    ($prefix:ident, $req_enum:ty, $res_enum:ty, $buf_len:literal) => {
         use paste::paste;
         use crate::tools::other_task_runner::TaskInterface;
         use embassy_sync::{
@@ -23,9 +23,9 @@ macro_rules! other_task_runner_setup {
         paste! {
             static [<$prefix:upper _REQ_ID>]: Mutex<CriticalSectionRawMutex, Cell<usize>> =
                 Mutex::new(Cell::new(0));
-            static [<$prefix:upper _REQ_CHANNEL>]: Channel<CriticalSectionRawMutex, TaskInterface<$req_enum>, 128> =
+            static [<$prefix:upper _REQ_CHANNEL>]: Channel<CriticalSectionRawMutex, TaskInterface<$req_enum>, $buf_len> =
                 Channel::new();
-            static [<$prefix:upper _RES_WATCH>]: Watch<CriticalSectionRawMutex, TaskInterface<$res_enum>, 128> = Watch::new();
+            static [<$prefix:upper _RES_WATCH>]: Watch<CriticalSectionRawMutex, TaskInterface<$res_enum>, $buf_len> = Watch::new();
 
             async fn [<$prefix:lower _get_req_id>]() -> usize {
                 let req_id_cell = [<$prefix:upper _REQ_ID>].lock().await;
