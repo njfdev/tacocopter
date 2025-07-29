@@ -27,6 +27,7 @@ enum BlackboxRequest {
     StartLog(()),
     Log(BlackboxLogData),
     StopLog(()),
+    EraseBlackboxFlashSpace(()),
     CollectRawLogs(()),
 }
 
@@ -35,6 +36,7 @@ enum BlackboxResponse {
     StartLog(()),
     Log(()),
     StopLog(()),
+    EraseBlackboxFlashSpace(Result<(), embassy_rp::flash::Error>),
     CollectRawLogs(Option<Vec<u8, LOG_DATA_SIZE>>),
 }
 
@@ -76,7 +78,12 @@ pub struct TcBlackbox {
 }
 
 impl TcBlackbox {
-    pub fn init(spawner: &Spawner, storage: &FlashStorage, flash_start: usize, flash_len: usize) {
+    pub async fn init(
+        spawner: &Spawner,
+        storage: &FlashStorage,
+        flash_start: usize,
+        flash_len: usize,
+    ) {
         // let flash_len: u32 = 4096;
         spawner
             .spawn(blackbox_handler(
@@ -90,6 +97,9 @@ impl TcBlackbox {
                 storage.clone_with_shared_flash(),
             ))
             .unwrap();
+
+        // do this to avoid needing to erase blocks during flight
+        TcBlackbox::erase_blackbox_flash_space().await;
     }
 
     pub fn reset(&mut self) {
@@ -99,6 +109,11 @@ impl TcBlackbox {
     }
 
     pub async fn log_implementation(&mut self, storage: &FlashStorage, data: BlackboxLogData) {
+        // Don't loop around logging because erasing is not going to happen during flight
+        if (self.cur_entry * LOG_ENTRY_SIZE) > self.flash_len {
+            return;
+        }
+
         let entry_index = self.cur_entry * LOG_ENTRY_SIZE;
 
         let mut data_bytes: Vec<u8, LOG_ENTRY_SIZE> = postcard::to_vec(&data).unwrap();
@@ -116,14 +131,14 @@ impl TcBlackbox {
 
         let res = storage
             .with_flash_async(async |flash| {
-                if entry_index % ERASE_SIZE == 0 {
-                    flash
-                        .erase(
-                            (self.flash_start + entry_index) as u32,
-                            (self.flash_start + entry_index + ERASE_SIZE) as u32,
-                        )
-                        .await;
-                }
+                // if entry_index % ERASE_SIZE == 0 {
+                //     flash
+                //         .erase(
+                //             (self.flash_start + entry_index) as u32,
+                //             (self.flash_start + entry_index + ERASE_SIZE) as u32,
+                //         )
+                //         .await;
+                // }
                 flash
                     .write((self.flash_start + entry_index) as u32, &data_bytes)
                     .await
@@ -135,9 +150,9 @@ impl TcBlackbox {
         } else {
             self.cur_entry += 1;
             self.total_entries = (self.total_entries + 1).min(self.flash_len / LOG_ENTRY_SIZE);
-            if self.cur_entry * LOG_ENTRY_SIZE > self.flash_len {
-                self.cur_entry = 0;
-            }
+            // if self.cur_entry * LOG_ENTRY_SIZE > self.flash_len {
+            //     self.cur_entry = 0;
+            // }
         }
     }
 
@@ -198,6 +213,20 @@ impl TcBlackbox {
         log_res
     }
 
+    pub async fn erase_blackbox_flash_space_implementation(
+        &self,
+        storage: &FlashStorage,
+    ) -> Result<(), embassy_rp::flash::Error> {
+        storage
+            .with_flash_async(async |flash| -> Result<(), embassy_rp::flash::Error> {
+                let start = self.flash_start as u32;
+                let end = (self.flash_start + self.flash_len) as u32;
+
+                flash.erase(start, end).await
+            })
+            .await
+    }
+
     pub fn get_log_count(&self) -> u32 {
         self.total_entries as u32
     }
@@ -208,6 +237,10 @@ impl TcBlackbox {
 
     pub async fn stop_log() {
         let _res = blackbox_call_request!(StopLog, ());
+    }
+
+    pub async fn erase_blackbox_flash_space() -> Result<(), embassy_rp::flash::Error> {
+        blackbox_call_request!(EraseBlackboxFlashSpace, ())
     }
 
     pub async fn log(log_data: BlackboxLogData) {
@@ -239,5 +272,8 @@ async fn blackbox_handler(mut tc_blackbox: TcBlackbox, storage: FlashStorage) {
         BlackboxRequest::CollectRawLogs(data) => {
             BlackboxResponse::CollectRawLogs(tc_blackbox.collect_logs_raw_implementation(&storage).await)
         },
+        BlackboxRequest::EraseBlackboxFlashSpace(_) => {
+            BlackboxResponse::EraseBlackboxFlashSpace(tc_blackbox.erase_blackbox_flash_space_implementation(&storage).await)
+        }
     });
 }

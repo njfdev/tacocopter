@@ -3,7 +3,7 @@ use embassy_executor::Spawner;
 use embassy_rp::{dma::Channel, flash::Flash, peripherals::FLASH, Peri};
 
 const FLASH_SIZE: usize = 4 * 1024 * 1024; // 2 MiB
-pub const CONFIG_SIZE: usize = 2 * 1024 * 1024; // 2 MiB
+pub const CONFIG_SIZE: usize = (3.75 * 1024.0 * 1024.0) as usize; // 2 MiB
 
 pub type FlashType = Flash<'static, FLASH, embassy_rp::flash::Async, FLASH_SIZE>;
 

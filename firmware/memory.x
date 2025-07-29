@@ -9,7 +9,7 @@ MEMORY {
     /*
      * The area for our DB store, after the flash region
      */
-    CONFIG : ORIGIN = 0x10200000, LENGTH = 3840K
+    CONFIG : ORIGIN = 0x10040000, LENGTH = 3840K
     /*
      * RAM consists of 8 banks, SRAM0-SRAM7, with a striped mapping.
      * This is usually good for performance, as it distributes load on
@@ -42,7 +42,7 @@ SECTIONS {
 } INSERT AFTER .vector_table;
 
 /* move .text to start /after/ the boot info */
-/* _stext = ADDR(.start_block) + SIZEOF(.start_block); */
+_stext = ADDR(.start_block) + SIZEOF(.start_block);
 
 SECTIONS {
     /* ### Picotool 'Binary Info' Entries

@@ -29,6 +29,7 @@ use postcard::from_bytes;
 use sequential_storage::{
     cache::NoCache,
     map::{fetch_item, store_item},
+    Error,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -211,8 +212,9 @@ async fn flash_handler(mut flash: FlashType, spawner: Spawner) {
         &spawner,
         &storage,
         (config_start + KEY_STORE_SIZE) as usize,
-        config_start as usize + CONFIG_SIZE,
-    );
+        CONFIG_SIZE - KEY_STORE_SIZE as usize,
+    )
+    .await;
 
     flash_request_handler!({
         FlashRequest::Set(data) => {
