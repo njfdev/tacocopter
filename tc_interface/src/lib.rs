@@ -3,6 +3,7 @@
 use core::fmt::Debug;
 use core::prelude::rust_2024::derive;
 use heapless::{String, Vec};
+use postcard::experimental::max_size::MaxSize;
 use serde::{Deserialize, Serialize};
 
 pub const TC_VID: u16 = 0x8216;
@@ -113,4 +114,68 @@ pub struct StartGyroCalibrationData {
 pub enum ConfiguratorMessage {
     StartGyroCalibration(StartGyroCalibrationData),
     StartBlackboxDownload,
+}
+
+//-----------------------------------------------------------//
+//---------------------- Shared Types -----------------------//
+//-----------------------------------------------------------//
+
+#[derive(Clone, Serialize, Deserialize, Default, MaxSize)]
+pub struct BlackboxLogData {
+    pub timestamp_micros: u64,
+    pub target_rate_pitch: f32,
+    pub target_rate_roll: f32,
+    pub target_rate_yaw: f32,
+    pub actual_rate_pitch: f32,
+    pub actual_rate_roll: f32,
+    pub actual_rate_yaw: f32,
+    pub p_term_pitch: f32,
+    pub p_term_roll: f32,
+    pub p_term_yaw: f32,
+    pub i_term_pitch: f32,
+    pub i_term_roll: f32,
+    pub i_term_yaw: f32,
+    pub d_term_pitch: f32,
+    pub d_term_roll: f32,
+    pub d_term_yaw: f32,
+    pub pid_output_pitch: f32,
+    pub pid_output_roll: f32,
+    pub pid_output_yaw: f32,
+    pub g_force: f32,
+}
+
+impl BlackboxLogData {
+    pub fn new(
+        time_micros: u64,
+        target_rate: [f32; 3],
+        actual_rate: [f32; 3],
+        p_term: [f32; 3],
+        i_term: [f32; 3],
+        d_term: [f32; 3],
+        pid_output: [f32; 3],
+        g_force: f32,
+    ) -> Self {
+        Self {
+            timestamp_micros: time_micros,
+            target_rate_pitch: target_rate[0],
+            target_rate_roll: target_rate[1],
+            target_rate_yaw: target_rate[2],
+            actual_rate_pitch: actual_rate[0],
+            actual_rate_roll: actual_rate[1],
+            actual_rate_yaw: actual_rate[2],
+            p_term_pitch: p_term[0],
+            p_term_roll: p_term[1],
+            p_term_yaw: p_term[2],
+            i_term_pitch: i_term[0],
+            i_term_roll: i_term[1],
+            i_term_yaw: i_term[2],
+            d_term_pitch: d_term[0],
+            d_term_roll: d_term[1],
+            d_term_yaw: d_term[2],
+            pid_output_pitch: pid_output[0],
+            pid_output_roll: pid_output[1],
+            pid_output_yaw: pid_output[2],
+            g_force,
+        }
+    }
 }

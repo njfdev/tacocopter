@@ -6,10 +6,7 @@
 use core::{fmt::Debug, str::FromStr};
 
 use crate::{
-    drivers::tc_store::{
-        blackbox::{BlackboxLogData, TcBlackbox},
-        storage::FlashStorage,
-    },
+    drivers::tc_store::{blackbox::TcBlackbox, storage::FlashStorage},
     other_task_runner_setup,
     setup::flash::{FlashType, CONFIG_SIZE},
 };

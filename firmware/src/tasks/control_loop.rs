@@ -3,13 +3,11 @@ use core::f32::consts::PI;
 use embassy_time::Instant;
 use micromath::F32Ext;
 use pid::Pid;
+use tc_interface::BlackboxLogData;
 
 use crate::{
     consts::UPDATE_LOOP_FREQUENCY,
-    drivers::{
-        elrs::Elrs,
-        tc_store::blackbox::{BlackboxLogData, TcBlackbox},
-    },
+    drivers::{elrs::Elrs, tc_store::blackbox::TcBlackbox},
     global::{
         ARMED_WATCH, BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, CONTROL_LOOP_VALUES,
         CURRENT_ALTITUDE, ELRS_SIGNAL, IMU_SIGNAL,
@@ -243,20 +241,20 @@ pub async fn control_loop() {
             .clamp(0.0, 1.0);
 
         if armed && since_last_log > (UPDATE_LOOP_FREQUENCY / 20.0) as u32 {
-            TcBlackbox::log(BlackboxLogData {
-                timestamp_micros: BOOT_TIME.get().elapsed().as_micros(),
-                target_rate: target_rates.try_into().unwrap(),
-                actual_rate: imu_rates.try_into().unwrap(),
-                p_term: [pid_pitch_output.p, pid_roll_output.p, pid_yaw_output.p],
-                i_term: [pid_pitch_output.i, pid_roll_output.i, pid_yaw_output.i],
-                d_term: [pid_pitch_output.d, pid_roll_output.d, pid_yaw_output.d],
-                pid_output: [
+            TcBlackbox::log(BlackboxLogData::new(
+                BOOT_TIME.get().elapsed().as_micros(),
+                target_rates.into(),
+                imu_rates.into(),
+                [pid_pitch_output.p, pid_roll_output.p, pid_yaw_output.p],
+                [pid_pitch_output.i, pid_roll_output.i, pid_yaw_output.i],
+                [pid_pitch_output.d, pid_roll_output.d, pid_yaw_output.d],
+                [
                     pid_pitch_output.output,
                     pid_roll_output.output,
                     pid_yaw_output.output,
                 ],
-                g_force: g_force,
-            })
+                g_force,
+            ))
             .await;
             since_last_log = 0;
         }

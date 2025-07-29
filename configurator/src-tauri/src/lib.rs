@@ -1,17 +1,21 @@
 use std::{
+    path::Path,
     sync::Mutex,
     thread::{self, sleep, sleep_ms},
     time::Duration,
 };
 
-use log::Level;
-use postcard::from_bytes;
+use csv::Writer;
+use dirs::download_dir;
+use log::{info, Level};
+use postcard::{experimental::max_size::MaxSize, from_bytes};
 use rusb::{open_device_with_vid_pid, Context, DeviceHandle, GlobalContext};
 use serde::{Deserialize, Serialize};
 use serde_json::value::Serializer;
 use tauri::{AppHandle, Emitter, Manager};
 use tc_interface::{
-    ConfiguratorMessage, LogData, StartGyroCalibrationData, TCMessage, TC_PID, TC_VID,
+    BlackboxInfoType, BlackboxLogData, ConfiguratorMessage, LogData, StartGyroCalibrationData,
+    TCMessage, TC_PID, TC_VID,
 };
 
 #[derive(Default)]
@@ -108,6 +112,7 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
     let out_endpoint = 0x01;
     let in_endpoint = 0x81;
     let mut log_buffer: Vec<LogData> = Vec::new();
+    let mut blackbox_buffer: Vec<u8> = Vec::new();
     // Read from bulk IN endpoint (example: 0x81)
     loop {
         if message_flag == false && log_buffer.len() > 0 {
@@ -202,6 +207,49 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
                     }
                     TCMessage::BlackboxInfo(data) => {
                         println!("Blackbox Info: {:?}", data);
+                        match data {
+                            BlackboxInfoType::SerializedSegment(byte_segment) => {
+                                blackbox_buffer.extend_from_slice(&byte_segment);
+                            }
+                            BlackboxInfoType::DownloadFinished(length) => {
+                                let serialized_size = BlackboxLogData::POSTCARD_MAX_SIZE;
+                                if length as usize * serialized_size != blackbox_buffer.len() {
+                                    println!(
+                                        "Total: {}, Expected: {}",
+                                        blackbox_buffer.len(),
+                                        length as usize * serialized_size
+                                    );
+                                    println!("ERROR: Received blackbox data length did not match the expected number of bytes to be received!");
+                                } else {
+                                    let mut blackbox_logs: Vec<BlackboxLogData> = vec![];
+
+                                    for log_bytes in blackbox_buffer.chunks(serialized_size) {
+                                        println!(
+                                            "Log len: {}, Serialized Size: {}",
+                                            log_bytes.len(),
+                                            serialized_size
+                                        );
+                                        let blackbox_log =
+                                            from_bytes::<BlackboxLogData>(log_bytes).unwrap();
+                                        blackbox_logs.push(blackbox_log);
+                                    }
+
+                                    let mut wtr = Writer::from_path(
+                                        download_dir()
+                                            .unwrap()
+                                            .as_path()
+                                            .join("tc-blackbox-log.csv"),
+                                    )
+                                    .unwrap();
+                                    for log in blackbox_logs {
+                                        wtr.serialize(log).unwrap();
+                                    }
+                                    wtr.flush().unwrap();
+                                }
+                                blackbox_buffer.clear();
+                            }
+                            _ => {}
+                        }
                     }
                     _ => {
                         app.emit("tc_data", message).unwrap();

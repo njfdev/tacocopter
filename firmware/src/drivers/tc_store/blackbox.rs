@@ -12,8 +12,10 @@ use embassy_time::Timer;
 use embedded_storage_async::nor_flash::NorFlash;
 use heapless_7::Vec;
 use log::{error, info};
+use postcard::experimental::max_size::MaxSize;
 use serde::{Deserialize, Serialize};
 use static_assertions::const_assert;
+use tc_interface::BlackboxLogData;
 
 const LOG_ENTRY_SIZE: usize = 128;
 const_assert!(ERASE_SIZE % LOG_ENTRY_SIZE == 0);
@@ -41,33 +43,6 @@ enum BlackboxResponse {
 }
 
 other_task_runner_setup!(BLACKBOX, BlackboxRequest, BlackboxResponse, 128);
-
-#[derive(Clone, Serialize, Deserialize, Default)]
-pub struct BlackboxLogData {
-    pub timestamp_micros: u64,
-    pub target_rate: [f32; 3],
-    pub actual_rate: [f32; 3],
-    pub p_term: [f32; 3],
-    pub i_term: [f32; 3],
-    pub d_term: [f32; 3],
-    pub pid_output: [f32; 3],
-    pub g_force: f32,
-}
-
-static BLACKBOX_SERIALIZED_DATA_SIZE: OnceLock<usize> = OnceLock::new();
-impl BlackboxLogData {
-    pub fn serialized_size() -> usize {
-        BLACKBOX_SERIALIZED_DATA_SIZE
-            .get_or_init(|| {
-                postcard::serialize_with_flavor(
-                    &Self::default(),
-                    postcard::ser_flavors::Size::default(),
-                )
-                .unwrap()
-            })
-            .clone()
-    }
-}
 
 pub struct TcBlackbox {
     cur_entry: usize,
@@ -201,7 +176,7 @@ impl TcBlackbox {
                     postcard::from_bytes(&log_bytes[0..LOG_DATA_SIZE]).unwrap();
 
                 return Some(
-                    Vec::from_slice(&log_bytes[0..BlackboxLogData::serialized_size()]).unwrap(),
+                    Vec::from_slice(&log_bytes[0..BlackboxLogData::POSTCARD_MAX_SIZE]).unwrap(),
                 );
             })
             .await;

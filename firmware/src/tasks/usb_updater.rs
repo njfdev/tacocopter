@@ -17,7 +17,7 @@ use tc_interface::{
 
 use crate::{
     consts::USB_LOGGER_RATE,
-    drivers::tc_store::blackbox::{BlackboxLogData, TcBlackbox, DOUBLE_LOG_DATA_SIZE},
+    drivers::tc_store::blackbox::{TcBlackbox, DOUBLE_LOG_DATA_SIZE},
     global::{
         CalibrationSensorType, BOOT_TIME, CALIBRATION_FEEDBACK_SIGNAL,
         CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_FETCH_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL,
@@ -199,16 +199,17 @@ pub async fn usb_updater(
                                 total_log_count += 1;
                             }
 
-                            while data_buf.len() >= BLACKBOX_SEGMENT_SIZE {
+                            while data_buf.len() >= BLACKBOX_SEGMENT_SIZE
+                                || (log_res.is_none() && data_buf.len() > 0)
+                            {
+                                let section_size = data_buf.len().min(BLACKBOX_SEGMENT_SIZE);
                                 let section_to_send =
                                     heapless::Vec::<u8, BLACKBOX_SEGMENT_SIZE>::from_slice(
-                                        &data_buf[0..BLACKBOX_SEGMENT_SIZE],
+                                        &data_buf[0..section_size],
                                     )
                                     .unwrap();
-                                data_buf = Vec::from_slice(
-                                    &data_buf[BLACKBOX_SEGMENT_SIZE..data_buf.len()],
-                                )
-                                .unwrap();
+                                data_buf = Vec::from_slice(&data_buf[section_size..data_buf.len()])
+                                    .unwrap();
 
                                 postcard::to_slice(
                                     &TCMessage::BlackboxInfo(
