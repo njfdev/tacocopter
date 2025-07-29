@@ -93,15 +93,11 @@ impl TcBlackbox {
 
         let mut data_bytes: Vec<u8, LOG_ENTRY_SIZE> = postcard::to_vec(&data).unwrap();
 
-        info!("Address: {}", (self.flash_start + entry_index) as u32);
-        info!("Logged bytes: {:?}", data_bytes);
-
         for _ in data_bytes.len()..LOG_DATA_SIZE {
             data_bytes.push(0).unwrap();
         }
 
         let checksum = Crc::<u64>::new(&BLACKBOX_CRC_ALGO).checksum(&data_bytes);
-        info!("Checksum: {}", checksum);
         data_bytes.extend(checksum.to_le_bytes());
 
         let res = storage
@@ -125,6 +121,9 @@ impl TcBlackbox {
         } else {
             self.cur_entry += 1;
             self.total_entries = (self.total_entries + 1).min(self.flash_len / LOG_ENTRY_SIZE);
+            if self.total_entries == self.flash_len / LOG_ENTRY_SIZE {
+                info!("Stopping log because ran out of flash space.");
+            }
             // if self.cur_entry * LOG_ENTRY_SIZE > self.flash_len {
             //     self.cur_entry = 0;
             // }
@@ -142,7 +141,6 @@ impl TcBlackbox {
                 }
 
                 let address = self.flash_start + self.collect_index * LOG_ENTRY_SIZE;
-                info!("Address: {}", address);
                 self.collect_index += 1;
 
                 let log_bytes = &mut [0u8; LOG_ENTRY_SIZE as usize];
@@ -155,7 +153,6 @@ impl TcBlackbox {
                     );
                     return None;
                 }
-                info!("Read bytes: {:?}", log_bytes);
 
                 let expected_checksum =
                     Crc::<u64>::new(&BLACKBOX_CRC_ALGO).checksum(&log_bytes[..LOG_DATA_SIZE]);
