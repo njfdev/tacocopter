@@ -229,7 +229,7 @@ async fn flash_handler(mut flash: FlashType, spawner: Spawner) {
                     .await
                 })
                 .await;
-            FlashResponse::Set(res_data)
+            Some(FlashResponse::Set(res_data))
         },
         FlashRequest::Get(data) => {
             let mut buffer = [0_u8; VALUE_BUFFER_SIZE];
@@ -248,16 +248,16 @@ async fn flash_handler(mut flash: FlashType, spawner: Spawner) {
 
             if res.is_ok() {
                 if res.as_ref().unwrap().is_some() {
-                    FlashResponse::Get(Ok(Some(
+                    Some(FlashResponse::Get(Ok(Some(
                             Vec::<u8, VALUE_BUFFER_SIZE>::from_slice(
                                 res.unwrap().unwrap_or_default(),
                             )
-                            .unwrap())))
+                            .unwrap()))))
                 } else {
-                    FlashResponse::Get(Ok(None))
+                    Some(FlashResponse::Get(Ok(None)))
                 }
             } else {
-                FlashResponse::Get(Err(res.unwrap_err()))
+                Some(FlashResponse::Get(Err(res.unwrap_err())))
             }
         }
     });

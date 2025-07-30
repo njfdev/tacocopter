@@ -59,7 +59,7 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
     room for more I/O tasks.
     */
     let _ = spawner.spawn(control_loop());
-    let _ = spawner.spawn(position_hold_loop());
+    // let _ = spawner.spawn(position_hold_loop());
     spawner
         .spawn(usb_updater(p.usb_bulk_in, p.usb_bulk_out))
         .unwrap();

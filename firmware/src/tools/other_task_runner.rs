@@ -87,12 +87,15 @@ macro_rules! other_task_runner_setup {
                     loop {
                         let request = [<$prefix:upper _REQ_CHANNEL>].receive().await;
 
-                        let res: $res_enum = match request.data $req_handler;
+                        // if none, assume this call doesn't expect to be awaited
+                        let res: Option<$res_enum> = match request.data $req_handler;
 
-                        sender.send(TaskInterface {
-                            id: request.id,
-                            data: res
-                        });
+                        if res.is_some() {
+                            sender.send(TaskInterface {
+                                id: request.id,
+                                data: res.unwrap()
+                            });
+                        }
                     }
                 }
             }

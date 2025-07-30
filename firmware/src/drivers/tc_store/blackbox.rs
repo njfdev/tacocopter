@@ -232,20 +232,20 @@ async fn blackbox_handler(mut tc_blackbox: TcBlackbox, storage: FlashStorage) {
         BlackboxRequest::Log(data) => {
             tc_blackbox.log_implementation(&storage, data).await;
 
-            BlackboxResponse::Log(())
+            None
         },
         BlackboxRequest::StartLog(data) => {
             tc_blackbox.reset();
-            BlackboxResponse::StartLog(())
+            Some(BlackboxResponse::StartLog(()))
         },
         BlackboxRequest::StopLog(data) => {
-            BlackboxResponse::StopLog(())
+            Some(BlackboxResponse::StopLog(()))
         },
         BlackboxRequest::CollectRawLogs(data) => {
-            BlackboxResponse::CollectRawLogs(tc_blackbox.collect_logs_raw_implementation(&storage).await)
+            Some(BlackboxResponse::CollectRawLogs(tc_blackbox.collect_logs_raw_implementation(&storage).await))
         },
         BlackboxRequest::EraseBlackboxFlashSpace(_) => {
-            BlackboxResponse::EraseBlackboxFlashSpace(tc_blackbox.erase_blackbox_flash_space_implementation(&storage).await)
+            Some(BlackboxResponse::EraseBlackboxFlashSpace(tc_blackbox.erase_blackbox_flash_space_implementation(&storage).await))
         }
     });
 }
