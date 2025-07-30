@@ -242,7 +242,7 @@ pub async fn control_loop() {
 
         if armed && since_last_log > (UPDATE_LOOP_FREQUENCY / 30.0) as u32 {
             TcBlackbox::log(BlackboxLogData::new(
-                BOOT_TIME.get().elapsed().as_micros(),
+                (BOOT_TIME.get().elapsed().as_micros() as f64) / 1_000_000.0,
                 target_rates.into(),
                 imu_rates.into(),
                 [pid_pitch_output.p, pid_roll_output.p, pid_yaw_output.p],
