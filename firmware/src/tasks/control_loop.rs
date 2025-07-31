@@ -1,5 +1,6 @@
 use core::f32::consts::PI;
 
+use biquad::{Biquad, Coefficients, DirectForm2Transposed, ToHertz, Q_BUTTERWORTH_F32};
 use embassy_time::Instant;
 use micromath::F32Ext;
 use pid::Pid;
@@ -38,19 +39,33 @@ With motor 1 and 4 CCW and motor 2 and 3 CW
 const MAX_ACRO_RATE: f32 = 200.0; // What is the target rotation rate at full throttle input?
 #[embassy_executor::task]
 pub async fn control_loop() {
+    // filter setup for d-term
+    let cutoff = 50.hz();
+    let sample_freq = UPDATE_LOOP_FREQUENCY.hz();
+    let coeffs = Coefficients::<f32>::from_params(
+        biquad::Type::LowPass,
+        sample_freq,
+        cutoff,
+        Q_BUTTERWORTH_F32,
+    )
+    .unwrap();
+
     // rotation pid
+    let mut yaw_d_filter = DirectForm2Transposed::new(coeffs);
     let mut pid_yaw = Pid::new(0.0, 0.25);
     pid_yaw.p(0.008, 0.5);
     pid_yaw.i(0.0001, 0.1);
     pid_yaw.d(0.0005, 0.1);
+    let mut roll_d_filter = DirectForm2Transposed::new(coeffs);
     let mut pid_roll = Pid::new(0.0, 0.25);
-    pid_roll.p(0.001105, 0.5); // decrease p more than d (cuz oscillations)
+    pid_roll.p(0.0012, 0.5);
     pid_roll.i(0.00002, 0.1);
-    pid_roll.d(0.000127, 0.1); // decrease d to like .000123 or until the jitters go away (cuz d amplifies noise)
+    pid_roll.d(0.0001, 0.1);
+    let mut pitch_d_filter = DirectForm2Transposed::new(coeffs);
     let mut pid_pitch = Pid::new(0.0, 0.25);
-    pid_pitch.p(0.001105, 0.5);
+    pid_pitch.p(0.0012, 0.5);
     pid_pitch.i(0.00002, 0.1);
-    pid_pitch.d(0.000127, 0.1);
+    pid_pitch.d(0.0001, 0.1);
 
     // vertical pid
     let mut pid_altitude = Pid::new(0.0, 2.0); // up to 2 m/s corrections
@@ -157,6 +172,9 @@ pub async fn control_loop() {
                 pid_yaw.reset_integral_term();
                 pid_pitch.reset_integral_term();
                 pid_roll.reset_integral_term();
+                yaw_d_filter.reset_state();
+                pitch_d_filter.reset_state();
+                roll_d_filter.reset_state();
                 // rate_errors = imu_values;
                 TcBlackbox::start_log().await;
             }
@@ -190,9 +208,21 @@ pub async fn control_loop() {
         // tc_println!("Position hold? {}", position_hold);
 
         // calc pid
-        let pid_pitch_output = pid_pitch.next_control_output(rate_errors.0);
-        let pid_roll_output = pid_roll.next_control_output(rate_errors.1);
-        let pid_yaw_output = pid_yaw.next_control_output(rate_errors.2);
+        pid_pitch.setpoint(target_rates.0);
+        let pid_pitch_raw_output = pid_pitch.next_control_output(imu_rates.0);
+        let pid_pitch_filtered_d = pitch_d_filter.run(pid_pitch_raw_output.d);
+        let pid_pitch_output =
+            pid_pitch_raw_output.p + pid_pitch_raw_output.i + pid_pitch_filtered_d;
+
+        pid_roll.setpoint(target_rates.1);
+        let pid_roll_raw_output = pid_roll.next_control_output(imu_rates.1);
+        let pid_roll_filtered_d = roll_d_filter.run(pid_roll_raw_output.d);
+        let pid_roll_output = pid_roll_raw_output.p + pid_roll_raw_output.i + pid_roll_filtered_d;
+
+        pid_yaw.setpoint(target_rates.2);
+        let pid_yaw_raw_output = pid_yaw.next_control_output(imu_rates.2);
+        let pid_yaw_filtered_d = yaw_d_filter.run(pid_yaw_raw_output.d);
+        let pid_yaw_output = pid_yaw_raw_output.p + pid_yaw_raw_output.i + pid_yaw_filtered_d;
 
         let mut pid_vs_output = 0.0;
         let new_should_use_position_hold = position_hold
@@ -224,20 +254,13 @@ pub async fn control_loop() {
             throttle_input
         };
 
-        let t1 = (current_throttle_value + pid_pitch_output.output + pid_roll_output.output
-            - pid_yaw_output.output)
+        let t1 = (current_throttle_value + pid_pitch_output + pid_roll_output - pid_yaw_output)
             .clamp(0.0, 1.0);
-        let t2 = (current_throttle_value + pid_pitch_output.output - pid_roll_output.output
-            + pid_yaw_output.output)
+        let t2 = (current_throttle_value + pid_pitch_output - pid_roll_output + pid_yaw_output)
             .clamp(0.0, 1.0);
-        let t3 = (current_throttle_value - pid_pitch_output.output
-            + pid_roll_output.output
-            + pid_yaw_output.output)
+        let t3 = (current_throttle_value - pid_pitch_output + pid_roll_output + pid_yaw_output)
             .clamp(0.0, 1.0);
-        let t4 = (current_throttle_value
-            - pid_pitch_output.output
-            - pid_roll_output.output
-            - pid_yaw_output.output)
+        let t4 = (current_throttle_value - pid_pitch_output - pid_roll_output - pid_yaw_output)
             .clamp(0.0, 1.0);
 
         if armed && since_last_log > (UPDATE_LOOP_FREQUENCY / 30.0) as u32 {
@@ -245,14 +268,22 @@ pub async fn control_loop() {
                 (BOOT_TIME.get().elapsed().as_micros() as f64) / 1_000_000.0,
                 target_rates.into(),
                 imu_rates.into(),
-                [pid_pitch_output.p, pid_roll_output.p, pid_yaw_output.p],
-                [pid_pitch_output.i, pid_roll_output.i, pid_yaw_output.i],
-                [pid_pitch_output.d, pid_roll_output.d, pid_yaw_output.d],
                 [
-                    pid_pitch_output.output,
-                    pid_roll_output.output,
-                    pid_yaw_output.output,
+                    pid_pitch_raw_output.p,
+                    pid_roll_raw_output.p,
+                    pid_yaw_raw_output.p,
                 ],
+                [
+                    pid_pitch_raw_output.i,
+                    pid_roll_raw_output.i,
+                    pid_yaw_raw_output.i,
+                ],
+                [
+                    pid_pitch_filtered_d,
+                    pid_roll_filtered_d,
+                    pid_yaw_filtered_d,
+                ],
+                [pid_pitch_output, pid_roll_output, pid_yaw_output],
                 g_force,
             ))
             .await;
