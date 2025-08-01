@@ -12,7 +12,7 @@ use tc_interface::{GyroCalibrationProgressData, SensorCalibrationType};
 
 use crate::{
     consts::{UPDATE_LOOP_FREQUENCY, USB_LOGGER_RATE},
-    drivers::tc_store::{SensorCalibrationData, TcStore},
+    drivers::tc_store::{types::SensorCalibrationData, TcStore},
     global::{
         CalibrationSensorType, CALIBRATION_FEEDBACK_SIGNAL, IMU_CALIB_SIGNAL,
         IMU_FETCH_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL, IMU_RAW_SIGNAL, IMU_SIGNAL,
