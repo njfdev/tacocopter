@@ -40,7 +40,7 @@ const MAX_ACRO_RATE: f32 = 200.0; // What is the target rotation rate at full th
 #[embassy_executor::task]
 pub async fn control_loop() {
     // filter setup for d-term
-    let cutoff = 50.hz();
+    let cutoff = 80.hz();
     let sample_freq = UPDATE_LOOP_FREQUENCY.hz();
     let coeffs = Coefficients::<f32>::from_params(
         biquad::Type::LowPass,
@@ -58,14 +58,14 @@ pub async fn control_loop() {
     pid_yaw.d(0.0005, 0.1);
     let mut roll_d_filter = DirectForm2Transposed::new(coeffs);
     let mut pid_roll = Pid::new(0.0, 0.25);
-    pid_roll.p(0.0012, 0.5);
+    pid_roll.p(0.0012, 0.5); // 0.0125
     pid_roll.i(0.00002, 0.1);
-    pid_roll.d(0.0001, 0.1);
+    pid_roll.d(0.02, 0.1); // 0.077
     let mut pitch_d_filter = DirectForm2Transposed::new(coeffs);
     let mut pid_pitch = Pid::new(0.0, 0.25);
-    pid_pitch.p(0.0012, 0.5);
+    pid_pitch.p(0.0012, 0.5); // 0.00115
     pid_pitch.i(0.00002, 0.1);
-    pid_pitch.d(0.0001, 0.1);
+    pid_pitch.d(0.02, 0.1); // 0.072
 
     // vertical pid
     let mut pid_altitude = Pid::new(0.0, 2.0); // up to 2 m/s corrections

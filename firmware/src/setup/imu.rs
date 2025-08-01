@@ -28,6 +28,8 @@ pub async fn setup_imu(
         .unwrap();
     mpu.set_gyro_range(mpu6050::device::GyroRange::D1000)
         .unwrap();
+    // enable hardware 94/98hz lowpass filter
+    mpu.write_bits(0x1A, 2, 3, 0x02).unwrap();
     // calibrate_accel(&mut mpu, 10.0).await;
     // calibrate_gyro(&mut mpu, 10.0).await;
 
