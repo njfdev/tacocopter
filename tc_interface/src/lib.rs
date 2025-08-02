@@ -86,6 +86,13 @@ pub enum BlackboxInfoType {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PIDSettings {
+    pub pitch: [f32; 3],
+    pub roll: [f32; 3],
+    pub yaw: [f32; 3],
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum TCMessage {
     // if true, then configurator should wait for more received packets
     // before sending data, otherwise, it is safe to send a packet.
@@ -97,6 +104,7 @@ pub enum TCMessage {
     ElrsChannels([u16; 16]),
     Log(LogData),
     BlackboxInfo(BlackboxInfoType),
+    PIDSettings(PIDSettings),
 }
 
 unsafe impl Send for ImuSensorData {}
@@ -114,6 +122,7 @@ pub struct StartGyroCalibrationData {
 pub enum ConfiguratorMessage {
     StartGyroCalibration(StartGyroCalibrationData),
     StartBlackboxDownload,
+    SetPidSettings(PIDSettings),
 }
 
 //-----------------------------------------------------------//

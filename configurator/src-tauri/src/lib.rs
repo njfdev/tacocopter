@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::Serializer;
 use tauri::{AppHandle, Emitter, Manager};
 use tc_interface::{
-    BlackboxInfoType, BlackboxLogData, ConfiguratorMessage, LogData, StartGyroCalibrationData,
-    TCMessage, TC_PID, TC_VID,
+    BlackboxInfoType, BlackboxLogData, ConfiguratorMessage, LogData, PIDSettings,
+    StartGyroCalibrationData, TCMessage, TC_PID, TC_VID,
 };
 
 #[derive(Default)]
@@ -23,6 +23,7 @@ struct AppState {
     is_usb_loop_running: bool,
     start_gyro_calibration: bool,
     start_blackbox_download: bool,
+    new_pid_settings: Option<PIDSettings>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,7 +37,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             start_usb_loop,
             start_gyro_calibration,
-            start_blackbox_download
+            start_blackbox_download,
+            set_pid_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -76,6 +78,14 @@ async fn start_blackbox_download(app: AppHandle) -> Result<(), ()> {
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
     state.start_blackbox_download = true;
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_pid_settings(app: AppHandle, pid_settings: PIDSettings) -> Result<(), ()> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    state.new_pid_settings = Some(pid_settings);
     Ok(())
 }
 
@@ -165,6 +175,31 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
                 .map_err(|e| e.to_string());
 
             println!("Start Blackbox Download USB Result: {:#?}", n_result);
+        }
+
+        // if needing to set new pid settings, then do it
+        let new_pid_settings: Option<PIDSettings>;
+        {
+            let state = app.state::<Mutex<AppState>>();
+            let mut state = state.lock().unwrap();
+            new_pid_settings = state.new_pid_settings.clone();
+            state.new_pid_settings = None;
+        }
+        if new_pid_settings.is_some() {
+            postcard::to_slice(
+                &ConfiguratorMessage::SetPidSettings(new_pid_settings.unwrap()),
+                &mut buf,
+            )
+            .unwrap();
+
+            let n_result: Result<usize, String> = handle
+                .write_bulk(out_endpoint, &mut buf, std::time::Duration::from_secs(999))
+                .map_err(|e| e.to_string());
+
+            println!(
+                "Set request to send PID settings with result: {:#?}",
+                n_result
+            );
         }
 
         // println!("Waiting for data!");

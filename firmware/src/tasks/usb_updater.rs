@@ -17,12 +17,16 @@ use tc_interface::{
 
 use crate::{
     consts::USB_LOGGER_RATE,
-    drivers::tc_store::blackbox::{TcBlackbox, DOUBLE_LOG_DATA_SIZE},
+    drivers::tc_store::{
+        blackbox::{TcBlackbox, DOUBLE_LOG_DATA_SIZE},
+        types::PIDValues,
+        TcStore,
+    },
     global::{
         CalibrationSensorType, BOOT_TIME, CALIBRATION_FEEDBACK_SIGNAL,
         CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_FETCH_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL,
-        LOG_CHANNEL, POSITION_HOLD_LOOP_FREQUENCY_SIGNAL, SHARED, START_CALIBRATION_SIGNAL,
-        ULTRASONIC_WATCH, USB_ENABLED,
+        LOG_CHANNEL, PID_WATCH, POSITION_HOLD_LOOP_FREQUENCY_SIGNAL, SHARED,
+        START_CALIBRATION_SIGNAL, ULTRASONIC_WATCH, USB_ENABLED,
     },
     tools::yielding_timer::YieldingTimer,
 };
@@ -47,6 +51,8 @@ pub async fn usb_updater(
     let mut usb_enabled_receiver = USB_ENABLED.receiver().unwrap();
     let mut is_usb_enabled = usb_enabled_receiver.try_get().unwrap_or_default();
     let mut since_last_toggle = Instant::now();
+    let mut cur_pid_values = TcStore::get::<PIDValues>().await;
+    let pid_sender = PID_WATCH.sender();
     loop {
         // wait to run until USB is plugged in
         loop {
@@ -104,6 +110,14 @@ pub async fn usb_updater(
 
         // send state data
         postcard::to_slice(&TCMessage::State(state_data), &mut buffer).unwrap();
+        usb_send.write(&buffer).await.unwrap();
+
+        // send PID settings
+        postcard::to_slice(
+            &TCMessage::PIDSettings(cur_pid_values.clone().into()),
+            &mut buffer,
+        )
+        .unwrap();
         usb_send.write(&buffer).await.unwrap();
 
         // send imu sensor data
@@ -187,6 +201,12 @@ pub async fn usb_updater(
                         //         break;
                         //     }
                         // }
+                    }
+                    ConfiguratorMessage::SetPidSettings(new_settings) => {
+                        let new_values: PIDValues = new_settings.into();
+                        cur_pid_values = new_values.clone();
+                        TcStore::set(new_values.clone()).await;
+                        pid_sender.send(new_values);
                     }
                     ConfiguratorMessage::StartBlackboxDownload => {
                         let mut data_buf = Vec::<u8, DOUBLE_LOG_DATA_SIZE>::new();

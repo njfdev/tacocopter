@@ -94,7 +94,7 @@ impl TcStore {
                 res.unwrap_err()
             );
         } else {
-            info!("Saved: {:?}", res);
+            // info!("Saved: {:?}", res);
         }
     }
 
@@ -103,7 +103,16 @@ impl TcStore {
         match res {
             Ok(val_res) => {
                 if val_res.is_some() {
-                    return from_bytes::<T>(val_res.unwrap().as_slice()).unwrap();
+                    let data_result = from_bytes::<T>(val_res.unwrap().as_slice());
+                    if data_result.is_ok() {
+                        return data_result.unwrap();
+                    }
+
+                    error!(
+                        "Issue parsing stored value, returning default: {:?}",
+                        data_result.unwrap_err()
+                    );
+                    return Default::default();
                 } else {
                     warn!("No value found for key {}, returning default...", &T::key());
                     return Default::default();

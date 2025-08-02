@@ -4,7 +4,8 @@ export type Message =
   | { Sensor: Sensor }
   | { SensorCalibration: SensorCalibration | string }
   | { ElrsChannels: ElrsChannels }
-  | { Log: LogLine[] };
+  | { Log: LogLine[] }
+  | { PIDSettings: PIDSettings };
 
 export interface State {
   target_update_rate: number;
@@ -13,6 +14,12 @@ export interface State {
   control_loop_update_rate: number;
   position_hold_loop_update_rate: number;
   uptime: number;
+}
+
+export interface PIDSettings {
+  pitch: [number, number, number];
+  roll: [number, number, number];
+  yaw: [number, number, number];
 }
 
 export interface ImuSensor {
@@ -71,4 +78,5 @@ export interface TCData {
   sensorCalibration: SensorCalibration;
   channels: ElrsChannels;
   logs: LogLine[];
+  pid: PIDSettings;
 }

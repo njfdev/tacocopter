@@ -2,19 +2,42 @@ use core::f32::consts::PI;
 
 use biquad::{Biquad, Coefficients, DirectForm2Transposed, ToHertz, Q_BUTTERWORTH_F32};
 use embassy_time::Instant;
+use log::info;
 use micromath::F32Ext;
 use pid::Pid;
 use tc_interface::BlackboxLogData;
 
 use crate::{
     consts::UPDATE_LOOP_FREQUENCY,
-    drivers::{elrs::Elrs, tc_store::blackbox::TcBlackbox},
+    drivers::{
+        elrs::Elrs,
+        tc_store::{blackbox::TcBlackbox, types::PIDValues, TcStore},
+    },
     global::{
         ARMED_WATCH, BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, CONTROL_LOOP_VALUES,
-        CURRENT_ALTITUDE, ELRS_SIGNAL, IMU_SIGNAL,
+        CURRENT_ALTITUDE, ELRS_SIGNAL, IMU_SIGNAL, PID_WATCH,
     },
     tools::yielding_timer::YieldingTimer,
 };
+
+pub fn set_pid_values(
+    pid_values: &PIDValues,
+    pid_pitch: &mut Pid<f32>,
+    pid_roll: &mut Pid<f32>,
+    pid_yaw: &mut Pid<f32>,
+) {
+    pid_pitch.p(pid_values.pitch[0], 0.5);
+    pid_pitch.i(pid_values.pitch[1], 0.1);
+    pid_pitch.d(pid_values.pitch[2], 0.1);
+
+    pid_roll.p(pid_values.roll[0], 0.5);
+    pid_roll.i(pid_values.roll[1], 0.1);
+    pid_roll.d(pid_values.roll[2], 0.1);
+
+    pid_yaw.p(pid_values.yaw[0], 0.5);
+    pid_yaw.i(pid_values.yaw[1], 0.1);
+    pid_yaw.d(pid_values.yaw[2], 0.1);
+}
 
 /*
 Quadcopter motor orientation
@@ -53,19 +76,17 @@ pub async fn control_loop() {
     // rotation pid
     let mut yaw_d_filter = DirectForm2Transposed::new(coeffs);
     let mut pid_yaw = Pid::new(0.0, 0.25);
-    pid_yaw.p(0.008, 0.5);
-    pid_yaw.i(0.0001, 0.1);
-    pid_yaw.d(0.0005, 0.1);
     let mut roll_d_filter = DirectForm2Transposed::new(coeffs);
     let mut pid_roll = Pid::new(0.0, 0.25);
-    pid_roll.p(0.0012, 0.5); // 0.0125
-    pid_roll.i(0.00002, 0.1);
-    pid_roll.d(0.02, 0.1); // 0.077
     let mut pitch_d_filter = DirectForm2Transposed::new(coeffs);
     let mut pid_pitch = Pid::new(0.0, 0.25);
-    pid_pitch.p(0.0012, 0.5); // 0.00115
-    pid_pitch.i(0.00002, 0.1);
-    pid_pitch.d(0.02, 0.1); // 0.072
+
+    set_pid_values(
+        &TcStore::get::<PIDValues>().await,
+        &mut pid_pitch,
+        &mut pid_roll,
+        &mut pid_yaw,
+    );
 
     // vertical pid
     let mut pid_altitude = Pid::new(0.0, 2.0); // up to 2 m/s corrections
@@ -103,6 +124,8 @@ pub async fn control_loop() {
     let mut imu_reciever = IMU_SIGNAL.receiver().unwrap();
     let armed_sender = ARMED_WATCH.sender();
 
+    let mut pid_receiver = PID_WATCH.receiver().unwrap();
+
     let mut should_use_position_hold = false;
     let mut since_last_log = 0;
 
@@ -117,6 +140,12 @@ pub async fn control_loop() {
         .await;
         let dt = (since_last_loop.elapsed().as_micros() as f32) / 1_000_000.0;
         since_last_loop = new_since_last_loop;
+
+        let pid_recv = pid_receiver.try_changed();
+        if pid_recv.is_some() {
+            let new_pid_values = pid_recv.unwrap();
+            set_pid_values(&new_pid_values, &mut pid_pitch, &mut pid_roll, &mut pid_yaw);
+        }
 
         let altitude_recv = altitude_receiver.try_changed();
         if altitude_recv.is_some()

@@ -7,6 +7,7 @@ import ElrsInterface from "./ElrsInterface";
 import LogInterface from "./LogInterface";
 import CalibrationInterface from "./CalibrationInterface";
 import BlackboxInterface from "./BlackboxInterface";
+import PIDConfigInterface from "./PIDConfigInterface";
 
 function App() {
   const [tcData, setTcData] = useState<TCData>({
@@ -35,6 +36,11 @@ function App() {
     },
     channels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     logs: [],
+    pid: {
+      pitch: [0, 0, 0],
+      roll: [0, 0, 0],
+      yaw: [0, 0, 0],
+    },
   });
   const logsRef = useRef(tcData.logs);
 
@@ -78,6 +84,11 @@ function App() {
             setTcData((prev) => ({
               ...prev,
               channels: event.payload.ElrsChannels,
+            }));
+          } else if ("PIDSettings" in event.payload) {
+            setTcData((prev) => ({
+              ...prev,
+              pid: event.payload.PIDSettings,
             }));
           }
           // setTcData(() => {
@@ -146,6 +157,9 @@ function App() {
         </Tab>
         <Tab key="elrs" title="ELRS">
           <ElrsInterface tcData={tcData} />
+        </Tab>
+        <Tab key="pid" title="PID Config">
+          <PIDConfigInterface tcData={tcData} />
         </Tab>
         <Tab key="calib" title="Calibration">
           <CalibrationInterface tcData={tcData} />

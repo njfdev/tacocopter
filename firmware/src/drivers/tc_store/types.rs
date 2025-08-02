@@ -25,3 +25,46 @@ impl Into<tc_interface::SensorCalibrationData> for SensorCalibrationData {
         }
     }
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PIDValues {
+    pub pitch: [f32; 3],
+    pub roll: [f32; 3],
+    pub yaw: [f32; 3],
+}
+
+impl Default for PIDValues {
+    fn default() -> Self {
+        Self {
+            pitch: [0.0012, 0.00002, 0.02],
+            roll: [0.0012, 0.00002, 0.02],
+            yaw: [0.008, 0.0001, 0.0005],
+        }
+    }
+}
+
+impl TcKeyValueStoreData for PIDValues {
+    fn key() -> String<16> {
+        String::from_str("SENSOR_CALIB").unwrap()
+    }
+}
+
+impl Into<tc_interface::PIDSettings> for PIDValues {
+    fn into(self) -> tc_interface::PIDSettings {
+        tc_interface::PIDSettings {
+            pitch: self.pitch,
+            roll: self.roll,
+            yaw: self.yaw,
+        }
+    }
+}
+
+impl From<tc_interface::PIDSettings> for PIDValues {
+    fn from(settings: tc_interface::PIDSettings) -> Self {
+        Self {
+            pitch: settings.pitch,
+            roll: settings.roll,
+            yaw: settings.yaw,
+        }
+    }
+}
