@@ -32,31 +32,31 @@ function MainInterface({ tcData }: { tcData: TCData }) {
     Legend
   );
 
-  const [eulerImu, setEulerImu] = useState({
-    gyro: [0.0, 0.0, 0.0],
-    accel: [0.0, 0.0, 0.0],
-    filtered: [0.0, 0.0, 0.0],
-  });
+  // const [eulerImu, setEulerImu] = useState({
+  //   gyro: [0.0, 0.0, 0.0],
+  //   accel: [0.0, 0.0, 0.0],
+  //   filtered: [0.0, 0.0, 0.0],
+  // });
   const [hasRunBefore, setHasRunBefore] = useState(false);
   const [chartData, setChartData] = useState({
     labels: [],
     datasets: [
+      // {
+      //   label: "Filtered Orientation",
+      //   data: [],
+      //   borderColor: "rgba(255, 255, 0, 1)",
+      //   backgroundColor: "rgba(255, 255, 0, 0.2)",
+      //   fill: true,
+      // },
       {
-        label: "Filtered Orientation",
-        data: [],
-        borderColor: "rgba(255, 255, 0, 1)",
-        backgroundColor: "rgba(255, 255, 0, 0.2)",
-        fill: true,
-      },
-      {
-        label: "Accelerometer Orientation",
+        label: "Accelerometer",
         data: [],
         borderColor: "rgba(255, 0, 0, 1)",
         backgroundColor: "rgba(255, 0, 0, 0.2)",
         fill: true,
       },
       {
-        label: "Gyroscope Orientation",
+        label: "Gyroscope",
         data: [],
         borderColor: "rgba(0, 0, 255, 1)",
         backgroundColor: "rgba(0, 0, 255, 0.2)",
@@ -85,7 +85,7 @@ function MainInterface({ tcData }: { tcData: TCData }) {
       y: {
         title: {
           display: true,
-          text: "Degrees (radians) / Height (cm)",
+          text: "Turn Rate (degrees/s) / Height (cm)",
         },
         beginAtZero: true,
       },
@@ -111,59 +111,59 @@ function MainInterface({ tcData }: { tcData: TCData }) {
     setChartData((prev) => {
       const newLabel = new Date().toLocaleTimeString();
 
-      let gyro_euler = new Euler().setFromQuaternion(
-        new Quaternion(
-          tcData.imuSensors.gyro_orientation[1],
-          tcData.imuSensors.gyro_orientation[0],
-          tcData.imuSensors.gyro_orientation[2],
-          tcData.imuSensors.gyro_orientation[3]
-        )
-      );
-      let accel_euler = new Euler().setFromQuaternion(
-        new Quaternion(
-          tcData.imuSensors.accel_orientation[1],
-          tcData.imuSensors.accel_orientation[0],
-          tcData.imuSensors.accel_orientation[2],
-          tcData.imuSensors.accel_orientation[3]
-        )
-      );
-      let filtered_euler = new Euler().setFromQuaternion(
-        new Quaternion(
-          tcData.imuSensors.orientation[1],
-          tcData.imuSensors.orientation[0],
-          tcData.imuSensors.orientation[2],
-          tcData.imuSensors.orientation[3]
-        )
-      );
-      // let update euler angles
-      let euler_angles = {
-        gyro: [gyro_euler.x, gyro_euler.y, gyro_euler.z],
-        accel: [accel_euler.x, accel_euler.y, accel_euler.z],
-        filtered: [filtered_euler.x, filtered_euler.y, filtered_euler.z],
-      };
-      setEulerImu(euler_angles);
+      // let gyro_euler = new Euler().setFromQuaternion(
+      //   new Quaternion(
+      //     tcData.imuSensors.gyro_orientation[1],
+      //     tcData.imuSensors.gyro_orientation[0],
+      //     tcData.imuSensors.gyro_orientation[2],
+      //     tcData.imuSensors.gyro_orientation[3]
+      //   )
+      // );
+      // let accel_euler = new Euler().setFromQuaternion(
+      //   new Quaternion(
+      //     tcData.imuSensors.accel_orientation[1],
+      //     tcData.imuSensors.accel_orientation[0],
+      //     tcData.imuSensors.accel_orientation[2],
+      //     tcData.imuSensors.accel_orientation[3]
+      //   )
+      // );
+      // let filtered_euler = new Euler().setFromQuaternion(
+      //   new Quaternion(
+      //     tcData.imuSensors.orientation[1],
+      //     tcData.imuSensors.orientation[0],
+      //     tcData.imuSensors.orientation[2],
+      //     tcData.imuSensors.orientation[3]
+      //   )
+      // );
+      // // let update euler angles
+      // let euler_angles = {
+      //   gyro: [gyro_euler.x, gyro_euler.y, gyro_euler.z],
+      //   accel: [accel_euler.x, accel_euler.y, accel_euler.z],
+      //   filtered: [filtered_euler.x, filtered_euler.y, filtered_euler.z],
+      // };
+      // setEulerImu(euler_angles);
 
       const updatedLabels = [...prev.labels, newLabel];
-      const updatedOrientationData = [
-        ...prev.datasets[0].data,
-        (euler_angles.filtered[chartChannel] / Math.PI) * 180,
-      ];
+      // const updatedOrientationData = [
+      //   ...prev.datasets[0].data,
+      //   (euler_angles.filtered[chartChannel] / Math.PI) * 180,
+      // ];
       const updatedAccelData = [
-        ...prev.datasets[1].data,
-        (euler_angles.accel[chartChannel] / Math.PI) * 180,
+        ...prev.datasets[0].data,
+        tcData.imuSensors?.accelerometer[chartChannel] || 0,
       ];
       const updatedGyroData = [
-        ...prev.datasets[2].data,
-        (euler_angles.gyro[chartChannel] / Math.PI) * 180,
+        ...prev.datasets[1].data,
+        (tcData.imuSensors?.gyroscope[chartChannel] || 0 / Math.PI) * 180,
       ];
       const updatedUltrasonic = [
-        ...prev.datasets[3].data,
+        ...prev.datasets[2].data,
         tcData.sensors.ultrasonic_dist,
       ];
 
       if (updatedLabels.length > max_data_points) {
         updatedLabels.shift();
-        updatedOrientationData.shift();
+        // updatedOrientationData.shift();
         updatedAccelData.shift();
         updatedGyroData.shift();
         updatedUltrasonic.shift();
@@ -172,20 +172,20 @@ function MainInterface({ tcData }: { tcData: TCData }) {
       return {
         labels: updatedLabels,
         datasets: [
+          // {
+          //   ...prev.datasets[0],
+          //   data: updatedOrientationData,
+          // },
           {
             ...prev.datasets[0],
-            data: updatedOrientationData,
-          },
-          {
-            ...prev.datasets[1],
             data: updatedAccelData,
           },
           {
-            ...prev.datasets[2],
+            ...prev.datasets[1],
             data: updatedGyroData,
           },
           {
-            ...prev.datasets[3],
+            ...prev.datasets[2],
             data: updatedUltrasonic,
           },
         ],
@@ -240,100 +240,98 @@ function MainInterface({ tcData }: { tcData: TCData }) {
             AccelCalib Z: {sensorCalibration.accel_calibration[2]} */}
           </p>
         </div>
-        <div className="w-[75%] h-[30vh]">
-          <Canvas>
-            <ambientLight intensity={0.1} />
-            <directionalLight color="white" position={[0, 0, 5]} />
-            <OrbitControls />
-            <Text
-              fontSize={0.2}
-              color="white"
-              anchorX={"center"}
-              anchorY={"middle"}
-              position={[-2, 1, 0]}
-            >
-              Accelerometer
-            </Text>
-            <mesh
-              ref={accelMeshRef}
-              quaternion={[
-                -tcData.imuSensors.accel_orientation[0],
-                tcData.imuSensors.accel_orientation[3],
-                tcData.imuSensors.accel_orientation[1],
-                -tcData.imuSensors.accel_orientation[2],
-              ]}
-              position={[-2, 0, 0]}
-            >
-              <boxGeometry args={[1.5, 0.1, 1]} />
-              <meshStandardMaterial color="red" />
-              <Arrow parentMesh={accelMeshRef} />
-            </mesh>
-            <Text
-              fontSize={0.2}
-              color="white"
-              anchorX={"center"}
-              anchorY={"middle"}
-              position={[0, 1, 0]}
-            >
-              Filtered
-            </Text>
-            <mesh
-              ref={accelMeshRef}
-              quaternion={[
-                -tcData.imuSensors.orientation[0],
-                tcData.imuSensors.orientation[3],
-                tcData.imuSensors.orientation[1],
-                -tcData.imuSensors.orientation[2],
-              ]}
-              position={[0, 0, 0]}
-            >
-              <boxGeometry args={[1.5, 0.1, 1]} />
-              <meshStandardMaterial color="yellow" />
-              <Arrow parentMesh={accelMeshRef} />
-            </mesh>
-            <Text
-              fontSize={0.2}
-              color="white"
-              anchorX={"center"}
-              anchorY={"middle"}
-              position={[2, 1, 0]}
-            >
-              Gyroscope
-            </Text>
-            <mesh
-              ref={gyroMeshRef}
-              // rotation={[
-              //   tcData.imuSensors.gyro_orientation[1],
-              //   tcData.imuSensors.gyro_orientation[2],
-              //   tcData.imuSensors.gyro_orientation[0],
-              // ]}
-              quaternion={[
-                -tcData.imuSensors.gyro_orientation[0],
-                tcData.imuSensors.gyro_orientation[3],
-                tcData.imuSensors.gyro_orientation[1],
-                -tcData.imuSensors.gyro_orientation[2],
-              ]}
-              position={[2, 0, 0]}
-            >
-              <boxGeometry args={[1.5, 0.1, 1]} />
-              <meshStandardMaterial color="blue" />
-              <Arrow parentMesh={accelMeshRef} />
-            </mesh>
-          </Canvas>
+        <div className="w-[75%] h-[30vh] relative">
+          <div className="absolute w-full h-full flex items-center align-middle justify-center z-10">
+            <p className="max-w-[32rem] text-center mx-4 font-bold dark:text-neutral-400 text-gray-700">
+              This view will be re-enabled when position-holding logic is
+              implemented (otherwise it provides no useful information).
+            </p>
+          </div>
+          <div className="w-full h-full opacity-30 pointer-events-none">
+            <Canvas>
+              <ambientLight intensity={0.1} />
+              <directionalLight color="white" position={[0, 0, 5]} />
+              <OrbitControls />
+              <Text
+                fontSize={0.2}
+                color="white"
+                anchorX={"center"}
+                anchorY={"middle"}
+                position={[-2, 1, 0]}
+              >
+                Accelerometer
+              </Text>
+              <mesh
+                ref={accelMeshRef}
+                // quaternion={[
+                //   -tcData.imuSensors.accel_orientation[0],
+                //   tcData.imuSensors.accel_orientation[3],
+                //   tcData.imuSensors.accel_orientation[1],
+                //   -tcData.imuSensors.accel_orientation[2],
+                // ]}
+                position={[-2, 0, 0]}
+              >
+                <boxGeometry args={[1.5, 0.1, 1]} />
+                <meshStandardMaterial color="red" />
+                <Arrow parentMesh={accelMeshRef} />
+              </mesh>
+              <Text
+                fontSize={0.2}
+                color="white"
+                anchorX={"center"}
+                anchorY={"middle"}
+                position={[0, 1, 0]}
+              >
+                Filtered
+              </Text>
+              <mesh
+                ref={accelMeshRef}
+                // quaternion={[
+                //   -tcData.imuSensors.orientation[0],
+                //   tcData.imuSensors.orientation[3],
+                //   tcData.imuSensors.orientation[1],
+                //   -tcData.imuSensors.orientation[2],
+                // ]}
+                position={[0, 0, 0]}
+              >
+                <boxGeometry args={[1.5, 0.1, 1]} />
+                <meshStandardMaterial color="yellow" />
+                <Arrow parentMesh={accelMeshRef} />
+              </mesh>
+              <Text
+                fontSize={0.2}
+                color="white"
+                anchorX={"center"}
+                anchorY={"middle"}
+                position={[2, 1, 0]}
+              >
+                Gyroscope
+              </Text>
+              <mesh
+                ref={gyroMeshRef}
+                // rotation={[
+                //   tcData.imuSensors.gyro_orientation[1],
+                //   tcData.imuSensors.gyro_orientation[2],
+                //   tcData.imuSensors.gyro_orientation[0],
+                // ]}
+                // quaternion={[
+                //   -tcData.imuSensors.gyro_orientation[0],
+                //   tcData.imuSensors.gyro_orientation[3],
+                //   tcData.imuSensors.gyro_orientation[1],
+                //   -tcData.imuSensors.gyro_orientation[2],
+                // ]}
+                position={[2, 0, 0]}
+              >
+                <boxGeometry args={[1.5, 0.1, 1]} />
+                <meshStandardMaterial color="blue" />
+                <Arrow parentMesh={accelMeshRef} />
+              </mesh>
+            </Canvas>
+          </div>
         </div>
       </div>
       <div className="flex justify-between mr-4">
-        <p className="grow basis-1">
-          <b>Accel Orientation X:</b>{" "}
-          {(tcData.imuSensors.accel_orientation[0] / Math.PI) * 180}
-          <br />
-          <b>Accel Orientation Y:</b>{" "}
-          {(tcData.imuSensors.accel_orientation[1] / Math.PI) * 180}
-          <br />
-          <b>Accel Orientation Z:</b>{" "}
-          {(tcData.imuSensors.accel_orientation[2] / Math.PI) * 180}
-        </p>
-        <p className="grow basis-1">
+        {/* <p className="grow basis-1">
           <b>Orientation X:</b>{" "}
           {(tcData.imuSensors.orientation[0] / Math.PI) * 180}
           <br />
@@ -342,16 +340,23 @@ function MainInterface({ tcData }: { tcData: TCData }) {
           <br />
           <b>Orientation Z:</b>{" "}
           {(tcData.imuSensors.orientation[2] / Math.PI) * 180}
-        </p>
+        </p> */}
         <p className="grow basis-1">
           <b>Gyro Orientation X:</b>{" "}
-          {(tcData.imuSensors.gyro_orientation[0] / Math.PI) * 180}
+          {(tcData.imuSensors?.gyroscope[0] || 0 / Math.PI) * 180}
           <br />
           <b>Gyro Orientation Y:</b>{" "}
-          {(tcData.imuSensors.gyro_orientation[1] / Math.PI) * 180}
+          {(tcData.imuSensors?.gyroscope[1] || 0 / Math.PI) * 180}
           <br />
           <b>Gyro Orientation Z:</b>{" "}
-          {(tcData.imuSensors.gyro_orientation[2] / Math.PI) * 180}
+          {(tcData.imuSensors?.gyroscope[2] || 0 / Math.PI) * 180}
+        </p>
+        <p className="grow basis-1">
+          <b>Accel X:</b> {tcData.imuSensors?.accelerometer[0] || 0}
+          <br />
+          <b>Accel Y:</b> {tcData.imuSensors?.accelerometer[1] || 0}
+          <br />
+          <b>Accel Z:</b> {tcData.imuSensors?.accelerometer[2] || 0}
         </p>
       </div>
       <div className="min-h-[55vh] mt-4">

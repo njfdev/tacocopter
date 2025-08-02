@@ -6,7 +6,7 @@ use micromath::F32Ext;
 use crate::{
     consts::{GRAVITY, ULTRASONIC_HEIGHT_ABOVE_BOTTOM, UPDATE_LOOP_FREQUENCY},
     global::{
-        ARMED_WATCH, BMP390_WATCH, CURRENT_ALTITUDE, GPS_SIGNAL, IMU_SIGNAL,
+        ARMED_WATCH, BMP390_WATCH, CURRENT_ALTITUDE, GPS_SIGNAL, IMU_WATCH,
         POSITION_HOLD_LOOP_FREQUENCY_SIGNAL, ULTRASONIC_WATCH,
     },
     tools::{
@@ -18,7 +18,7 @@ use crate::{
 #[embassy_executor::task]
 pub async fn position_hold_loop() {
     let mut gps_receiver = GPS_SIGNAL.receiver().unwrap();
-    let mut imu_receiver = IMU_SIGNAL.receiver().unwrap();
+    let mut imu_receiver = IMU_WATCH.receiver().unwrap();
     let mut ultrasonic_receiver = ULTRASONIC_WATCH.receiver().unwrap();
     let mut barometer_receiver = BMP390_WATCH.receiver().unwrap();
 

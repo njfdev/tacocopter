@@ -15,7 +15,7 @@ use crate::{
     },
     global::{
         ARMED_WATCH, BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, CONTROL_LOOP_VALUES,
-        CURRENT_ALTITUDE, ELRS_SIGNAL, IMU_SIGNAL, PID_WATCH,
+        CURRENT_ALTITUDE, ELRS_SIGNAL, IMU_WATCH, PID_WATCH,
     },
     tools::yielding_timer::YieldingTimer,
 };
@@ -121,7 +121,7 @@ pub async fn control_loop() {
     let mut since_last_loop = Instant::now();
     let mut since_last_elrs_update = Instant::now();
 
-    let mut imu_reciever = IMU_SIGNAL.receiver().unwrap();
+    let mut imu_reciever = IMU_WATCH.receiver().unwrap();
     let armed_sender = ARMED_WATCH.sender();
 
     let mut pid_receiver = PID_WATCH.receiver().unwrap();

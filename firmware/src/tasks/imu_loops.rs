@@ -15,7 +15,7 @@ use crate::{
     drivers::tc_store::{types::SensorCalibrationData, TcStore},
     global::{
         CalibrationSensorType, CALIBRATION_FEEDBACK_SIGNAL, IMU_CALIB_SIGNAL,
-        IMU_FETCH_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL, IMU_RAW_SIGNAL, IMU_SIGNAL,
+        IMU_FETCH_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL, IMU_RAW_SIGNAL, IMU_WATCH,
         SHARED, START_CALIBRATION_SIGNAL,
     },
     tools::{
@@ -57,7 +57,7 @@ pub async fn mpu6050_processor_loop() {
 
     // let mut filtered_orientation: [f32; 3] = [0.0; 3];
 
-    let imu_watch_sender = IMU_SIGNAL.sender();
+    let imu_watch_sender = IMU_WATCH.sender();
 
     // let mut kalman_angle_roll: f32 = 0.0;
     // let mut kalman_angle_roll_uncertainty: f32 = 2.0.powi(2);
@@ -211,7 +211,7 @@ pub async fn mpu6050_processor_loop() {
                 //         .unwrap();
                 // shared.imu_sensor_data.gyro_orientation = gyro_angles;
                 // shared.imu_sensor_data.orientation = orientation_quaternion;
-                shared.calibration_data.accel_calibration = accel_data;
+                shared.calibration_data.accel_calibration = sensor_calibration.accel_calibration;
             }
             // iterations = 0;
             //info!("Estimated rotation: {:?}", rotation);

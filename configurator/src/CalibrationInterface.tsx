@@ -71,7 +71,11 @@ export default function CalibrationInterface({ tcData }: { tcData: TCData }) {
               {calibrationData.accel_calibration[1]},{" "}
               {calibrationData.accel_calibration[2]}
             </p>
-            <Button>Start Calibration</Button>
+            <Button isDisabled={true}>Start Calibration</Button>
+            <p className="text-sm opacity-60">
+              This feature will be implemented in the future, and is not
+              necessary for rate mode (the default).
+            </p>
           </div>
         </div>
       </div>

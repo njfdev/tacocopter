@@ -23,11 +23,11 @@ export interface PIDSettings {
 }
 
 export interface ImuSensor {
-  // gyroscope: [number, number, number];
-  // accelerometer: [number, number, number];
-  gyro_orientation: [number, number, number, number];
-  accel_orientation: [number, number, number, number];
-  orientation: [number, number, number, number];
+  gyroscope: [number, number, number];
+  accelerometer: [number, number, number];
+  // gyro_orientation: [number, number, number, number];
+  // accel_orientation: [number, number, number, number];
+  // orientation: [number, number, number, number];
 }
 
 export interface Sensor {

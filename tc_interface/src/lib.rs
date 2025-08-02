@@ -18,11 +18,11 @@ pub const BLACKBOX_SEGMENT_SIZE: usize = 60;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct ImuSensorData {
-    // pub gyroscope: [f32; 3],
-    // pub accelerometer: [f32; 3],
-    pub gyro_orientation: [f32; 4],
-    pub accel_orientation: [f32; 4],
-    pub orientation: [f32; 4],
+    pub gyroscope: [f32; 3],
+    pub accelerometer: [f32; 3],
+    // pub gyro_orientation: [f32; 4],
+    // pub accel_orientation: [f32; 4],
+    // pub orientation: [f32; 4],
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

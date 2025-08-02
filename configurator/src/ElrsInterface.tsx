@@ -6,8 +6,7 @@ function ElrsInterface({ tcData }: { tcData: TCData }) {
   return (
     <main className="flex flex-col h-screen mainContentContainer">
       <div className="h-full w-full">
-        <h1 className="w-full">ELRS Channels</h1>
-        <div>{JSON.stringify(tcData.channels)}</div>
+        <h1 className="w-full font-bold text-xl">ELRS Channels</h1>
         <div className="grid grid-rows-8 gap-x-4 grid-flow-col">
           {tcData.channels.map((val, id) => {
             return (

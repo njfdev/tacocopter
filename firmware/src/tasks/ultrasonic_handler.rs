@@ -3,7 +3,7 @@ use core::f32::consts::PI;
 use crate::{
     consts::{ULTRASONIC_DISTANCE_TO_CENTER_PITCH, ULTRASONIC_HEIGHT_ABOVE_BOTTOM},
     drivers::hc_sr04::HcSr04,
-    global::{IMU_SIGNAL, ULTRASONIC_WATCH},
+    global::{IMU_WATCH, ULTRASONIC_WATCH},
 };
 use embassy_rp::{
     peripherals::{PIN_16, PIN_17, PIO1},
@@ -22,7 +22,7 @@ pub async fn calc_ultrasonic_height_agl(
 
     let mut imu_rotation = (0.0, 0.0, 0.0);
 
-    let mut imu_reciever = IMU_SIGNAL.receiver().unwrap();
+    let mut imu_reciever = IMU_WATCH.receiver().unwrap();
     let ultrasonic_sender = ULTRASONIC_WATCH.sender();
 
     // wait for 10 milliseconds for any signals to clear (e.g. the pin was held high by default, then low, so it triggers once)

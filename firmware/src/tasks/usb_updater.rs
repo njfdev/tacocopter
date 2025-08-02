@@ -25,7 +25,7 @@ use crate::{
     global::{
         CalibrationSensorType, BOOT_TIME, CALIBRATION_FEEDBACK_SIGNAL,
         CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_FETCH_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL,
-        LOG_CHANNEL, PID_WATCH, POSITION_HOLD_LOOP_FREQUENCY_SIGNAL, SHARED,
+        IMU_WATCH, LOG_CHANNEL, PID_WATCH, POSITION_HOLD_LOOP_FREQUENCY_SIGNAL, SHARED,
         START_CALIBRATION_SIGNAL, ULTRASONIC_WATCH, USB_ENABLED,
     },
     tools::yielding_timer::YieldingTimer,
@@ -53,6 +53,7 @@ pub async fn usb_updater(
     let mut since_last_toggle = Instant::now();
     let mut cur_pid_values = TcStore::get::<PIDValues>().await;
     let pid_sender = PID_WATCH.sender();
+    let mut imu_receiver = IMU_WATCH.receiver().unwrap();
     loop {
         // wait to run until USB is plugged in
         loop {
@@ -70,7 +71,7 @@ pub async fn usb_updater(
 
         let mut buffer = [0u8; 64];
         let state_data: StateData;
-        let imu_sensor_data: ImuSensorData;
+        let mut imu_sensor_data: ImuSensorData = ImuSensorData::default();
         let sensor_data: SensorData;
         let calibration_data: SensorCalibrationData;
         let elrs_channels: [u16; 16];
@@ -94,7 +95,7 @@ pub async fn usb_updater(
                 shared.state_data.position_hold_loop_update_rate = position_hold_loop_freq.unwrap();
             }
             state_data = shared.state_data.clone();
-            imu_sensor_data = shared.imu_sensor_data.clone();
+            // imu_sensor_data = shared.imu_sensor_data.clone();
             let ultrasonic_recv = ultrasonic_receiver.try_changed();
             if ultrasonic_recv.is_some() {
                 shared.sensor_data.ultrasonic_dist = ultrasonic_recv.unwrap().unwrap_or(f32::NAN);
@@ -102,6 +103,15 @@ pub async fn usb_updater(
             sensor_data = shared.sensor_data.clone();
             calibration_data = shared.calibration_data.clone();
             elrs_channels = shared.elrs_channels.clone();
+        }
+
+        let imu_res = imu_receiver.try_changed();
+        if imu_res.is_some() {
+            let imu_data = imu_res.unwrap();
+            imu_sensor_data = ImuSensorData {
+                gyroscope: imu_data.0.into(),
+                accelerometer: imu_data.2.into(),
+            };
         }
 
         // indicate start of data

@@ -37,10 +37,10 @@ pub static LOG_CHANNEL: Channel<CriticalSectionRawMutex, LogData, 128> = Channel
 
 pub static ELRS_SIGNAL: Signal<CriticalSectionRawMutex, [u16; 16]> = Signal::new();
 // The first 3 numbers are the IMU Rates in radians per second, the second 3 are for the estimated orientation, and the last three are the accel values
-pub static IMU_SIGNAL: Watch<
+pub static IMU_WATCH: Watch<
     CriticalSectionRawMutex,
     ((f32, f32, f32), (f32, f32, f32), (f32, f32, f32)),
-    3,
+    4,
 > = Watch::new();
 // (armed, throttle_percent, motor_powers)
 pub static CONTROL_LOOP_VALUES: Signal<CriticalSectionRawMutex, (bool, f32, [f32; 4])> =
@@ -87,11 +87,11 @@ pub static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(Shar
         uptime: 0,
     },
     imu_sensor_data: ImuSensorData {
-        // gyroscope: [0.0, 0.0, 0.0],
-        // accelerometer: [0.0, 0.0, 0.0],
-        gyro_orientation: [0.0; 4],
-        accel_orientation: [0.0; 4],
-        orientation: [0.0; 4],
+        gyroscope: [0.0; 3],
+        accelerometer: [0.0; 3],
+        // gyro_orientation: [0.0; 4],
+        // accel_orientation: [0.0; 4],
+        // orientation: [0.0; 4],
     },
     sensor_data: SensorData {
         estimated_altitude: 0.0,
