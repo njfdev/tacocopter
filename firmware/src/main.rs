@@ -10,6 +10,7 @@ pub mod tasks;
 pub mod tools;
 
 use embassy_executor::Spawner;
+use embassy_futures::yield_now;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
 use embassy_rp::gpio::Level;
@@ -148,7 +149,13 @@ async fn main(spawner: Spawner) {
             // decrease the frequency by a factor of 50 to better see the result
             imu_process_freq = new_imu_process_freq.unwrap() / 50.0;
         }
-        blink_led(&mut tc_devices.status_led, imu_process_freq).await;
+
+        // if the frequency is too low, don't blink the LED (or it might take forever to blink if it was slow briefly)
+        if imu_process_freq < 1.0 {
+            yield_now().await;
+        } else {
+            blink_led(&mut tc_devices.status_led, imu_process_freq).await;
+        }
 
         // TcStore::set(SensorCalibrationData {
         //     gyro_biases: (-0.0356924, -0.0230041, -0.03341522),
