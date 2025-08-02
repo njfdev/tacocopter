@@ -36,8 +36,8 @@ pub struct PIDValues {
 impl Default for PIDValues {
     fn default() -> Self {
         Self {
-            pitch: [0.0012, 0.00002, 0.02],
-            roll: [0.0012, 0.00002, 0.02],
+            pitch: [0.0015, 0.00002, 0.006],
+            roll: [0.0015, 0.00002, 0.006],
             yaw: [0.008, 0.0001, 0.0005],
         }
     }

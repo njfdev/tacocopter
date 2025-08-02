@@ -63,7 +63,7 @@ const MAX_ACRO_RATE: f32 = 200.0; // What is the target rotation rate at full th
 #[embassy_executor::task]
 pub async fn control_loop() {
     // filter setup for d-term
-    let cutoff = 80.hz();
+    let cutoff = 90.hz();
     let sample_freq = UPDATE_LOOP_FREQUENCY.hz();
     let coeffs = Coefficients::<f32>::from_params(
         biquad::Type::LowPass,
