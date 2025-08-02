@@ -131,6 +131,8 @@ pub async fn control_loop() {
 
     let mut g_force = 1.0;
 
+    let mut since_blackbox_erased = Instant::now();
+
     loop {
         let new_since_last_loop = YieldingTimer::after_micros(
             (1_000_000 / (UPDATE_LOOP_FREQUENCY as u64))
@@ -222,13 +224,17 @@ pub async fn control_loop() {
             }
             position_hold = new_position_hold;
             // if button on channel 9 is pressed, stop everything and erase the flash to make space for blackbox logs, but only on the ground
-            if Elrs::elrs_input_to_percent(chnls[8], None) > 0.5 && !armed {
+            if Elrs::elrs_input_to_percent(chnls[8], None) > 0.5
+                && !armed
+                && since_blackbox_erased.elapsed().as_millis() > 500
+            {
                 let result = TcBlackbox::erase_blackbox_flash_space().await;
                 if result.is_ok() {
                     info!("Successfully erase blackbox log space.")
                 } else {
                     error!("Unable to erase blackbox log space (the drone can still fly but the logs will be corrupted): {:?}", result.unwrap_err());
                 }
+                since_blackbox_erased = Instant::now();
             }
             throttle_input = Elrs::elrs_input_to_percent(chnls[2], None);
             yaw_input = Elrs::elrs_input_to_percent(chnls[0], Some(0.01)) * MAX_ACRO_RATE;
