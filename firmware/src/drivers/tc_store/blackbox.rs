@@ -74,7 +74,7 @@ impl TcBlackbox {
             .unwrap();
 
         // do this to avoid needing to erase blocks during flight
-        TcBlackbox::erase_blackbox_flash_space().await;
+        // TcBlackbox::erase_blackbox_flash_space().await;
     }
 
     pub fn reset(&mut self) {

@@ -2,7 +2,7 @@ use core::f32::consts::PI;
 
 use biquad::{Biquad, Coefficients, DirectForm2Transposed, ToHertz, Q_BUTTERWORTH_F32};
 use embassy_time::Instant;
-use log::info;
+use log::{error, info};
 use micromath::F32Ext;
 use pid::Pid;
 use tc_interface::BlackboxLogData;
@@ -221,6 +221,15 @@ pub async fn control_loop() {
                 }
             }
             position_hold = new_position_hold;
+            // if button on channel 9 is pressed, stop everything and erase the flash to make space for blackbox logs, but only on the ground
+            if Elrs::elrs_input_to_percent(chnls[8], None) > 0.5 && !armed {
+                let result = TcBlackbox::erase_blackbox_flash_space().await;
+                if result.is_ok() {
+                    info!("Successfully erase blackbox log space.")
+                } else {
+                    error!("Unable to erase blackbox log space (the drone can still fly but the logs will be corrupted): {:?}", result.unwrap_err());
+                }
+            }
             throttle_input = Elrs::elrs_input_to_percent(chnls[2], None);
             yaw_input = Elrs::elrs_input_to_percent(chnls[0], Some(0.01)) * MAX_ACRO_RATE;
             roll_input = Elrs::elrs_input_to_percent(chnls[3], Some(0.01)) * MAX_ACRO_RATE;
