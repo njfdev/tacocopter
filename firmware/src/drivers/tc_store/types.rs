@@ -45,7 +45,7 @@ impl Default for PIDValues {
 
 impl TcKeyValueStoreData for PIDValues {
     fn key() -> String<16> {
-        String::from_str("SENSOR_CALIB").unwrap()
+        String::from_str("PID_VALUES").unwrap()
     }
 }
 
