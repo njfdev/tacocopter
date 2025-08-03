@@ -25,8 +25,7 @@ use crate::{
     global::{
         CalibrationSensorType, BLACKBOX_SETTINGS_WATCH, BOOT_TIME, CALIBRATION_FEEDBACK_SIGNAL,
         CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL, IMU_WATCH, LOG_CHANNEL,
-        PID_WATCH, POSITION_HOLD_LOOP_FREQUENCY_SIGNAL, SHARED, START_CALIBRATION_SIGNAL,
-        ULTRASONIC_WATCH, USB_ENABLED,
+        PID_WATCH, SHARED, START_CALIBRATION_SIGNAL, ULTRASONIC_WATCH, USB_ENABLED,
     },
     tools::yielding_timer::YieldingTimer,
 };
@@ -87,10 +86,6 @@ pub async fn usb_updater(
             let control_loop_freq = CONTROL_LOOP_FREQUENCY_SIGNAL.try_take();
             if control_loop_freq.is_some() {
                 shared.state_data.control_loop_update_rate = control_loop_freq.unwrap();
-            }
-            let position_hold_loop_freq = POSITION_HOLD_LOOP_FREQUENCY_SIGNAL.try_take();
-            if position_hold_loop_freq.is_some() {
-                shared.state_data.position_hold_loop_update_rate = position_hold_loop_freq.unwrap();
             }
             state_data = shared.state_data.clone();
             // imu_sensor_data = shared.imu_sensor_data.clone();

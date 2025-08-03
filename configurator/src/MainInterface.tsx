@@ -211,9 +211,6 @@ function MainInterface({ tcData }: { tcData: TCData }) {
             Control Loop Update Frequency:{" "}
             {tcData.state.control_loop_update_rate} hz
             <br />
-            Position Hold Loop Update Frequency:{" "}
-            {tcData.state.position_hold_loop_update_rate} hz
-            <br />
             Estimated Altitude: {tcData.sensors.estimated_altitude} m
             <br />
             Ultrasonic Sensor: {tcData.sensors.ultrasonic_dist} cm

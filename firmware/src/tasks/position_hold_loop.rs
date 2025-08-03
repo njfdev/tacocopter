@@ -6,8 +6,7 @@ use micromath::F32Ext;
 use crate::{
     consts::{GRAVITY, ULTRASONIC_HEIGHT_ABOVE_BOTTOM, UPDATE_LOOP_FREQUENCY},
     global::{
-        ARMED_WATCH, BMP390_WATCH, CURRENT_ALTITUDE, GPS_SIGNAL, IMU_WATCH,
-        POSITION_HOLD_LOOP_FREQUENCY_SIGNAL, ULTRASONIC_WATCH,
+        ARMED_WATCH, BMP390_WATCH, CURRENT_ALTITUDE, GPS_SIGNAL, IMU_WATCH, ULTRASONIC_WATCH,
     },
     tools::{
         altitude_estimator::{AltitudeEstimator, ACCEL_VERTICAL_BIAS},
@@ -198,6 +197,6 @@ pub async fn position_hold_loop() {
             can_estimate_altitude = false;
         }
 
-        POSITION_HOLD_LOOP_FREQUENCY_SIGNAL.signal(1.0 / dt);
+        // POSITION_HOLD_LOOP_FREQUENCY_SIGNAL.signal(1.0 / dt);
     }
 }

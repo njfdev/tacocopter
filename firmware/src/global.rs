@@ -74,8 +74,6 @@ pub static CALIBRATION_FEEDBACK_SIGNAL: Signal<CriticalSectionRawMutex, SensorCa
 // frequency signals (for usb logging)
 pub static IMU_PROCESSOR_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 pub static CONTROL_LOOP_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
-pub static POSITION_HOLD_LOOP_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> =
-    Signal::new();
 pub static IMU_PROCESSOR_SIGNAL: Signal<CriticalSectionRawMutex, (f32, ImuSensorData)> =
     Signal::new();
 
@@ -84,7 +82,6 @@ pub static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(Shar
         target_update_rate: UPDATE_LOOP_FREQUENCY as f32,
         imu_process_rate: 0.0,
         control_loop_update_rate: 0.0,
-        position_hold_loop_update_rate: 0.0,
         uptime: 0,
     },
     imu_sensor_data: ImuSensorData {

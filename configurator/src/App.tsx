@@ -13,11 +13,9 @@ function App() {
   const [tcData, setTcData] = useState<TCData>({
     state: {
       uptime: 0,
-      imu_fetch_rate: 0,
       imu_process_rate: 0,
       target_update_rate: 0,
       control_loop_update_rate: 0,
-      position_hold_loop_update_rate: 0,
     },
     imuSensors: {
       // gyroscope: [0, 0, 0],
