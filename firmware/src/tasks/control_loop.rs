@@ -337,6 +337,7 @@ pub async fn control_loop() {
                 (BOOT_TIME.get().elapsed().as_micros() as f64) / 1_000_000.0,
                 1.0 / dt,
                 last_imu_processor_freq,
+                throttle_input,
                 target_rates.into(),
                 imu_rates.into(),
                 [
