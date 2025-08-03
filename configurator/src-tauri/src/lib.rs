@@ -1,7 +1,7 @@
 use std::{
     path::Path,
     sync::Mutex,
-    thread::{self, sleep, sleep_ms},
+    thread::{self, sleep_ms},
     time::Duration,
 };
 
@@ -12,7 +12,7 @@ use postcard::{experimental::max_size::MaxSize, from_bytes};
 use rusb::{open_device_with_vid_pid, Context, DeviceHandle, GlobalContext};
 use serde::{Deserialize, Serialize};
 use serde_json::value::Serializer;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{async_runtime, AppHandle, Emitter, Manager};
 use tc_interface::{
     BlackboxInfoType, BlackboxLogData, ConfiguratorMessage, LogData, PIDSettings,
     StartGyroCalibrationData, TCMessage, TC_PID, TC_VID,
@@ -22,7 +22,7 @@ use tc_interface::{
 struct AppState {
     is_usb_loop_running: bool,
     start_gyro_calibration: bool,
-    start_blackbox_download: bool,
+    start_blackbox_download: Option<(String, async_runtime::Sender<Result<usize, String>>)>,
     new_pid_settings: Option<PIDSettings>,
     blackbox_enabled: Option<bool>,
 }
@@ -30,6 +30,7 @@ struct AppState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             app.manage(Mutex::new(AppState::default()));
@@ -76,11 +77,15 @@ async fn start_gyro_calibration(app: AppHandle) -> Result<(), ()> {
 }
 
 #[tauri::command]
-async fn start_blackbox_download(app: AppHandle) -> Result<(), ()> {
-    let state = app.state::<Mutex<AppState>>();
-    let mut state = state.lock().unwrap();
-    state.start_blackbox_download = true;
-    Ok(())
+async fn start_blackbox_download(app: AppHandle, path: String) -> Result<usize, String> {
+    let (tx, mut rx) = async_runtime::channel::<Result<usize, String>>(1);
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().unwrap();
+        state.start_blackbox_download = Some((path, tx));
+    };
+    let result = rx.recv().await.unwrap();
+    return result;
 }
 
 #[tauri::command]
@@ -133,6 +138,10 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
     let in_endpoint = 0x81;
     let mut log_buffer: Vec<LogData> = Vec::new();
     let mut blackbox_buffer: Vec<u8> = Vec::new();
+
+    let mut blackbox_download_path = String::from("");
+    let mut blackbox_download_response_tx: Option<async_runtime::Sender<Result<usize, String>>> =
+        None;
     // Read from bulk IN endpoint (example: 0x81)
     loop {
         if message_flag == false && log_buffer.len() > 0 {
@@ -174,8 +183,15 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
         {
             let state = app.state::<Mutex<AppState>>();
             let mut state = state.lock().unwrap();
-            should_start_blackbox_download = state.start_blackbox_download;
-            state.start_blackbox_download = false;
+            if state.start_blackbox_download.is_some() {
+                let blackbox_download_info = state.start_blackbox_download.take().unwrap();
+                blackbox_download_path = blackbox_download_info.0;
+                blackbox_download_response_tx = Some(blackbox_download_info.1);
+                should_start_blackbox_download = true;
+                state.start_blackbox_download = None;
+            } else {
+                should_start_blackbox_download = false;
+            }
         }
         if should_start_blackbox_download {
             postcard::to_slice(&ConfiguratorMessage::StartBlackboxDownload, &mut buf).unwrap();
@@ -251,7 +267,7 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
                     handle = handle_result.unwrap();
                     break;
                 }
-                sleep(Duration::from_millis(100));
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
             // println!("Returning from search loop!");
             continue;
@@ -283,13 +299,15 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
                             }
                             BlackboxInfoType::DownloadFinished(length) => {
                                 let serialized_size = BlackboxLogData::POSTCARD_MAX_SIZE;
+                                let blackbox_download_resonse_tx_unwrapped =
+                                    blackbox_download_response_tx.unwrap();
                                 if length as usize * serialized_size != blackbox_buffer.len() {
                                     println!(
                                         "Total: {}, Expected: {}",
                                         blackbox_buffer.len(),
                                         length as usize * serialized_size
                                     );
-                                    println!("ERROR: Received blackbox data length did not match the expected number of bytes to be received!");
+                                    blackbox_download_resonse_tx_unwrapped.send(Err(String::from("ERROR: Received blackbox data length did not match the expected number of bytes to be received!"))).await.unwrap();
                                 } else {
                                     let mut blackbox_logs: Vec<BlackboxLogData> = vec![];
 
@@ -304,19 +322,24 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
                                         blackbox_logs.push(blackbox_log);
                                     }
 
-                                    let mut wtr = Writer::from_path(
-                                        download_dir()
-                                            .unwrap()
-                                            .as_path()
-                                            .join("tc-blackbox-log.csv"),
-                                    )
-                                    .unwrap();
+                                    let mut wtr =
+                                        Writer::from_path(Path::new(&blackbox_download_path))
+                                            .unwrap();
                                     for log in blackbox_logs {
                                         wtr.serialize(log).unwrap();
                                     }
                                     wtr.flush().unwrap();
+                                    blackbox_download_resonse_tx_unwrapped
+                                        .send(Ok(length as usize))
+                                        .await
+                                        .unwrap();
                                 }
                                 blackbox_buffer.clear();
+                                // wait for other tasks to realize the task is finished
+                                while !blackbox_download_resonse_tx_unwrapped.is_closed() {
+                                    tokio::time::sleep(Duration::from_millis(10)).await;
+                                }
+                                blackbox_download_response_tx = None;
                             }
                             _ => {}
                         }

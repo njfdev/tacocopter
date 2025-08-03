@@ -3,5 +3,8 @@
     "./configurator/src-tauri/Cargo.toml",
     "./firmware/Cargo.toml",
     "./tc_interface/Cargo.toml"
-  ]
+  ],
+  "rust-analyzer.cargo.extraEnv": {
+    "MACOSX_DEPLOYMENT_TARGET": "10.13"
+  }
 }
