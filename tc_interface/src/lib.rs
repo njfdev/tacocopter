@@ -132,6 +132,8 @@ pub enum ConfiguratorMessage {
 #[derive(Clone, Serialize, Deserialize, Default, MaxSize)]
 pub struct BlackboxLogData {
     pub timestamp_secs: f64,
+    pub imu_process_rate: f32,
+    pub control_loop_update_rate: f32,
     pub target_rate_pitch: f32,
     pub target_rate_roll: f32,
     pub target_rate_yaw: f32,
@@ -156,6 +158,8 @@ pub struct BlackboxLogData {
 impl BlackboxLogData {
     pub fn new(
         time_secs: f64,
+        imu_process_rate: f32,
+        control_loop_update_rate: f32,
         target_rate: [f32; 3],
         actual_rate: [f32; 3],
         p_term: [f32; 3],
@@ -166,6 +170,8 @@ impl BlackboxLogData {
     ) -> Self {
         Self {
             timestamp_secs: time_secs,
+            imu_process_rate,
+            control_loop_update_rate,
             target_rate_pitch: target_rate[0],
             target_rate_roll: target_rate[1],
             target_rate_yaw: target_rate[2],

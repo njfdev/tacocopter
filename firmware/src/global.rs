@@ -72,7 +72,7 @@ pub static CALIBRATION_FEEDBACK_SIGNAL: Signal<CriticalSectionRawMutex, SensorCa
     Signal::new();
 
 // frequency signals (for usb logging)
-pub static IMU_PROCESSOR_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
+pub static IMU_PROCESSOR_FREQUENCY_WATCH: Watch<CriticalSectionRawMutex, f32, 2> = Watch::new();
 pub static CONTROL_LOOP_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 pub static IMU_PROCESSOR_SIGNAL: Signal<CriticalSectionRawMutex, (f32, ImuSensorData)> =
     Signal::new();

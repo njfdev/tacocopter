@@ -24,7 +24,7 @@ use crate::{
     },
     global::{
         CalibrationSensorType, BLACKBOX_SETTINGS_WATCH, BOOT_TIME, CALIBRATION_FEEDBACK_SIGNAL,
-        CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL, IMU_WATCH, LOG_CHANNEL,
+        CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_WATCH, IMU_WATCH, LOG_CHANNEL,
         PID_WATCH, SHARED, START_CALIBRATION_SIGNAL, ULTRASONIC_WATCH, USB_ENABLED,
     },
     tools::yielding_timer::YieldingTimer,
@@ -55,6 +55,7 @@ pub async fn usb_updater(
     let mut imu_receiver = IMU_WATCH.receiver().unwrap();
     let mut blackbox_settings = TcStore::get::<BlackboxSettings>().await;
     let blackbox_settings_sender = BLACKBOX_SETTINGS_WATCH.sender();
+    let mut imu_processor_freq_receiver = IMU_PROCESSOR_FREQUENCY_WATCH.receiver().unwrap();
     loop {
         // wait to run until USB is plugged in
         loop {
@@ -79,7 +80,7 @@ pub async fn usb_updater(
         {
             let mut shared = SHARED.lock().await;
             shared.state_data.uptime = BOOT_TIME.get().elapsed().as_secs() as u32;
-            let imu_process_freq = IMU_PROCESSOR_FREQUENCY_SIGNAL.try_take();
+            let imu_process_freq = imu_processor_freq_receiver.try_changed();
             if imu_process_freq.is_some() {
                 shared.state_data.imu_process_rate = imu_process_freq.unwrap();
             }

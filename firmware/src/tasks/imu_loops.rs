@@ -15,7 +15,7 @@ use crate::{
     drivers::tc_store::{types::SensorCalibrationData, TcStore},
     global::{
         CalibrationSensorType, CALIBRATION_FEEDBACK_SIGNAL, IMU_CALIB_SIGNAL,
-        IMU_PROCESSOR_FREQUENCY_SIGNAL, IMU_WATCH, SHARED, START_CALIBRATION_SIGNAL,
+        IMU_PROCESSOR_FREQUENCY_WATCH, IMU_WATCH, SHARED, START_CALIBRATION_SIGNAL,
     },
     tools::{
         calibrators::imu::GyroCalibrator, kalman::KalmanFilterQuat, yielding_timer::YieldingTimer,
@@ -33,6 +33,7 @@ pub async fn mpu6050_processor_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>)
     let mut sensor_calibration = tc_interface::SensorCalibrationData::default();
 
     let imu_watch_sender = IMU_WATCH.sender();
+    let imu_processor_freq_sender = IMU_PROCESSOR_FREQUENCY_WATCH.sender();
 
     loop {
         let new_since_last = YieldingTimer::after_micros(
@@ -79,7 +80,7 @@ pub async fn mpu6050_processor_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>)
 
         if last_log.elapsed().as_millis() >= (1000.0 / USB_LOGGER_RATE) as u64 {
             last_log = Instant::now();
-            IMU_PROCESSOR_FREQUENCY_SIGNAL.signal(frequency);
+            imu_processor_freq_sender.send(frequency);
         }
     }
 }

@@ -19,7 +19,8 @@ use crate::{
     },
     global::{
         ARMED_WATCH, BLACKBOX_SETTINGS_WATCH, BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL,
-        CONTROL_LOOP_VALUES, CURRENT_ALTITUDE, ELRS_SIGNAL, IMU_WATCH, PID_WATCH,
+        CONTROL_LOOP_VALUES, CURRENT_ALTITUDE, ELRS_SIGNAL, IMU_PROCESSOR_FREQUENCY_WATCH,
+        IMU_WATCH, PID_WATCH,
     },
     tools::yielding_timer::YieldingTimer,
 };
@@ -140,6 +141,9 @@ pub async fn control_loop() {
     let mut g_force = 1.0;
 
     let mut since_blackbox_erased = Instant::now();
+
+    let mut imu_processor_freq_receiver = IMU_PROCESSOR_FREQUENCY_WATCH.receiver().unwrap();
+    let mut last_imu_processor_freq = 0.0;
 
     loop {
         let new_since_last_loop = YieldingTimer::after_micros(
@@ -324,9 +328,15 @@ pub async fn control_loop() {
             .clamp(0.0, 1.0);
 
         if armed && blackbox_enabled && since_last_log > (UPDATE_LOOP_FREQUENCY / 30.0) as u32 {
-            info!("Logging");
+            let imu_processor_freq_recv = imu_processor_freq_receiver.try_changed();
+            if imu_processor_freq_recv.is_some() {
+                last_imu_processor_freq = imu_processor_freq_recv.unwrap();
+            }
+
             TcBlackbox::log(BlackboxLogData::new(
                 (BOOT_TIME.get().elapsed().as_micros() as f64) / 1_000_000.0,
+                1.0 / dt,
+                last_imu_processor_freq,
                 target_rates.into(),
                 imu_rates.into(),
                 [
