@@ -10,7 +10,10 @@ use tc_interface::{
 
 use crate::{
     consts::UPDATE_LOOP_FREQUENCY,
-    drivers::{m100_gps::GPSPayload, tc_store::types::PIDValues},
+    drivers::{
+        m100_gps::GPSPayload,
+        tc_store::types::{BlackboxSettings, PIDValues},
+    },
     setup::flash::FlashType,
 };
 
@@ -49,6 +52,8 @@ pub static GPS_SIGNAL: Watch<CriticalSectionRawMutex, GPSPayload, 2> = Watch::ne
 // measured height in m
 pub static ULTRASONIC_WATCH: Watch<CriticalSectionRawMutex, Option<f32>, 2> = Watch::new();
 pub static PID_WATCH: Watch<CriticalSectionRawMutex, PIDValues, 1> = Watch::new();
+pub static BLACKBOX_SETTINGS_WATCH: Watch<CriticalSectionRawMutex, BlackboxSettings, 1> =
+    Watch::new();
 // in format of (pressure in kPa, temperature in kelvin, estimated altitude in m)
 pub static BMP390_WATCH: Watch<CriticalSectionRawMutex, (f32, f32, f32), 1> = Watch::new();
 // processed in position hold control loop, for use in the control loop under position hold mode (altitude, vertical velocity)

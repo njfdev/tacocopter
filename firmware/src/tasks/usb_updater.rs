@@ -19,11 +19,11 @@ use crate::{
     consts::USB_LOGGER_RATE,
     drivers::tc_store::{
         blackbox::{TcBlackbox, DOUBLE_LOG_DATA_SIZE},
-        types::PIDValues,
+        types::{BlackboxSettings, PIDValues},
         TcStore,
     },
     global::{
-        CalibrationSensorType, BOOT_TIME, CALIBRATION_FEEDBACK_SIGNAL,
+        CalibrationSensorType, BLACKBOX_SETTINGS_WATCH, BOOT_TIME, CALIBRATION_FEEDBACK_SIGNAL,
         CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_SIGNAL, IMU_WATCH, LOG_CHANNEL,
         PID_WATCH, POSITION_HOLD_LOOP_FREQUENCY_SIGNAL, SHARED, START_CALIBRATION_SIGNAL,
         ULTRASONIC_WATCH, USB_ENABLED,
@@ -54,6 +54,8 @@ pub async fn usb_updater(
     let mut cur_pid_values = TcStore::get::<PIDValues>().await;
     let pid_sender = PID_WATCH.sender();
     let mut imu_receiver = IMU_WATCH.receiver().unwrap();
+    let mut blackbox_settings = TcStore::get::<BlackboxSettings>().await;
+    let blackbox_settings_sender = BLACKBOX_SETTINGS_WATCH.sender();
     loop {
         // wait to run until USB is plugged in
         loop {
@@ -121,6 +123,14 @@ pub async fn usb_updater(
         // send PID settings
         postcard::to_slice(
             &TCMessage::PIDSettings(cur_pid_values.clone().into()),
+            &mut buffer,
+        )
+        .unwrap();
+        usb_send.write(&buffer).await.unwrap();
+
+        // send PID settings
+        postcard::to_slice(
+            &TCMessage::Blackbox(blackbox_settings.enabled.clone()),
             &mut buffer,
         )
         .unwrap();
@@ -213,6 +223,14 @@ pub async fn usb_updater(
                         cur_pid_values = new_values.clone();
                         TcStore::set(new_values.clone()).await;
                         pid_sender.send(new_values);
+                    }
+                    ConfiguratorMessage::SetBlackboxEnabled(is_enabled) => {
+                        blackbox_settings.enabled = is_enabled;
+                        let new_settings = BlackboxSettings {
+                            enabled: is_enabled,
+                        };
+                        TcStore::set(new_settings.clone()).await;
+                        blackbox_settings_sender.send(new_settings);
                     }
                     ConfiguratorMessage::StartBlackboxDownload => {
                         let mut data_buf = Vec::<u8, DOUBLE_LOG_DATA_SIZE>::new();

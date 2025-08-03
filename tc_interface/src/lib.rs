@@ -104,6 +104,7 @@ pub enum TCMessage {
     Log(LogData),
     BlackboxInfo(BlackboxInfoType),
     PIDSettings(PIDSettings),
+    Blackbox(bool),
 }
 
 unsafe impl Send for ImuSensorData {}
@@ -122,6 +123,7 @@ pub enum ConfiguratorMessage {
     StartGyroCalibration(StartGyroCalibrationData),
     StartBlackboxDownload,
     SetPidSettings(PIDSettings),
+    SetBlackboxEnabled(bool),
 }
 
 //-----------------------------------------------------------//

@@ -90,6 +90,11 @@ function App() {
               ...prev,
               pid: event.payload.PIDSettings,
             }));
+          } else if ("Blackbox" in event.payload) {
+            setTcData((prev) => ({
+              ...prev,
+              blackbox_enabled: event.payload.Blackbox,
+            }));
           }
           // setTcData(() => {
           //   if (prev.log.id != event.payload.Log.id) {

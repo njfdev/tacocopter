@@ -68,3 +68,14 @@ impl From<tc_interface::PIDSettings> for PIDValues {
         }
     }
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct BlackboxSettings {
+    pub enabled: bool,
+}
+
+impl TcKeyValueStoreData for BlackboxSettings {
+    fn key() -> String<16> {
+        String::from_str("BLACKBOX").unwrap()
+    }
+}

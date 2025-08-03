@@ -24,6 +24,7 @@ struct AppState {
     start_gyro_calibration: bool,
     start_blackbox_download: bool,
     new_pid_settings: Option<PIDSettings>,
+    blackbox_enabled: Option<bool>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -38,7 +39,8 @@ pub fn run() {
             start_usb_loop,
             start_gyro_calibration,
             start_blackbox_download,
-            set_pid_settings
+            set_pid_settings,
+            set_blackbox_enabled
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -86,6 +88,14 @@ async fn set_pid_settings(app: AppHandle, pid_settings: PIDSettings) -> Result<(
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
     state.new_pid_settings = Some(pid_settings);
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_blackbox_enabled(app: AppHandle, enabled: bool) -> Result<(), ()> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    state.blackbox_enabled = Some(enabled);
     Ok(())
 }
 
@@ -198,6 +208,31 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
 
             println!(
                 "Set request to send PID settings with result: {:#?}",
+                n_result
+            );
+        }
+
+        // if needing to set blackbox enabled setting, then do it
+        let blackbox_enabled: Option<bool>;
+        {
+            let state = app.state::<Mutex<AppState>>();
+            let mut state = state.lock().unwrap();
+            blackbox_enabled = state.blackbox_enabled.clone();
+            state.blackbox_enabled = None;
+        }
+        if blackbox_enabled.is_some() {
+            postcard::to_slice(
+                &ConfiguratorMessage::SetBlackboxEnabled(blackbox_enabled.unwrap()),
+                &mut buf,
+            )
+            .unwrap();
+
+            let n_result: Result<usize, String> = handle
+                .write_bulk(out_endpoint, &mut buf, std::time::Duration::from_secs(999))
+                .map_err(|e| e.to_string());
+
+            println!(
+                "Set request to set Blackbox settings with result: {:#?}",
                 n_result
             );
         }

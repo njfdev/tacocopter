@@ -11,11 +11,15 @@ use crate::{
     consts::UPDATE_LOOP_FREQUENCY,
     drivers::{
         elrs::Elrs,
-        tc_store::{blackbox::TcBlackbox, types::PIDValues, TcStore},
+        tc_store::{
+            blackbox::TcBlackbox,
+            types::{BlackboxSettings, PIDValues},
+            TcStore,
+        },
     },
     global::{
-        ARMED_WATCH, BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, CONTROL_LOOP_VALUES,
-        CURRENT_ALTITUDE, ELRS_SIGNAL, IMU_WATCH, PID_WATCH,
+        ARMED_WATCH, BLACKBOX_SETTINGS_WATCH, BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL,
+        CONTROL_LOOP_VALUES, CURRENT_ALTITUDE, ELRS_SIGNAL, IMU_WATCH, PID_WATCH,
     },
     tools::yielding_timer::YieldingTimer,
 };
@@ -126,6 +130,10 @@ pub async fn control_loop() {
 
     let mut pid_receiver = PID_WATCH.receiver().unwrap();
 
+    let mut blackbox_settings = TcStore::get::<BlackboxSettings>().await;
+    let mut blackbox_enabled = blackbox_settings.enabled;
+    let mut blackbox_settings_receiver = BLACKBOX_SETTINGS_WATCH.receiver().unwrap();
+
     let mut should_use_position_hold = false;
     let mut since_last_log = 0;
 
@@ -147,6 +155,14 @@ pub async fn control_loop() {
         if pid_recv.is_some() {
             let new_pid_values = pid_recv.unwrap();
             set_pid_values(&new_pid_values, &mut pid_pitch, &mut pid_roll, &mut pid_yaw);
+        }
+
+        let blackbox_settings_recv = blackbox_settings_receiver.try_changed();
+        if blackbox_settings_recv.is_some() {
+            blackbox_settings = blackbox_settings_recv.unwrap();
+        }
+        if !armed && blackbox_enabled != blackbox_settings.enabled {
+            blackbox_enabled = blackbox_settings.enabled;
         }
 
         let altitude_recv = altitude_receiver.try_changed();
@@ -307,7 +323,8 @@ pub async fn control_loop() {
         let t4 = (current_throttle_value - pid_pitch_output - pid_roll_output - pid_yaw_output)
             .clamp(0.0, 1.0);
 
-        if armed && since_last_log > (UPDATE_LOOP_FREQUENCY / 30.0) as u32 {
+        if armed && blackbox_enabled && since_last_log > (UPDATE_LOOP_FREQUENCY / 30.0) as u32 {
+            info!("Logging");
             TcBlackbox::log(BlackboxLogData::new(
                 (BOOT_TIME.get().elapsed().as_micros() as f64) / 1_000_000.0,
                 target_rates.into(),

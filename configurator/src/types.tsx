@@ -5,7 +5,8 @@ export type Message =
   | { SensorCalibration: SensorCalibration | string }
   | { ElrsChannels: ElrsChannels }
   | { Log: LogLine[] }
-  | { PIDSettings: PIDSettings };
+  | { PIDSettings: PIDSettings }
+  | { Blackbox: boolean };
 
 export interface State {
   target_update_rate: number;
@@ -78,4 +79,5 @@ export interface TCData {
   channels: ElrsChannels;
   logs: LogLine[];
   pid: PIDSettings;
+  blackbox_enabled: boolean;
 }
