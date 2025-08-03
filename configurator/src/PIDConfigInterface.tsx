@@ -48,7 +48,7 @@ export default function CalibrationInterface({ tcData }: { tcData: TCData }) {
   };
 
   return (
-    <main className="flex flex-col h-screen mainContentContainer pt-4 pl-2">
+    <main className="flex flex-col h-screen mainContentContainer pt-2 pl-2">
       <div className="h-full w-full">
         <h1 className="w-full font-bold text-2xl mb-4">PID Configuration</h1>
         <div className="mb-4">

@@ -153,7 +153,7 @@ function App() {
   }, []);
 
   return (
-    <main className="flex flex-col h-screen w-screen">
+    <main className="flex flex-col h-screen w-screen pl-2 pt-2">
       <Tabs isVertical={true} fullWidth={true}>
         <Tab key="main" title="Main">
           <MainInterface tcData={tcData} />

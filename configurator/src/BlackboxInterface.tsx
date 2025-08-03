@@ -16,7 +16,7 @@ export default function BlackboxInterface({ tcData }: { tcData: TCData }) {
   };
 
   return (
-    <main className="flex flex-col h-screen mainContentContainer pt-4 pl-2">
+    <main className="flex flex-col h-screen mainContentContainer pt-2 pl-2">
       <div className="h-full w-full">
         <div className="w-full mb-4 flex gap-3 items-center align-middle">
           <Switch

@@ -34,7 +34,7 @@ export default function CalibrationInterface({ tcData }: { tcData: TCData }) {
   }, [tcData.sensorCalibration]);
 
   return (
-    <main className="flex flex-col h-screen mainContentContainer pt-4 pl-2">
+    <main className="flex flex-col h-screen mainContentContainer pt-2 pl-2">
       <div className="h-full w-full">
         <h1 className="w-full font-bold text-2xl mb-4">Calibration</h1>
         <div className="max-w-xl flex flex-col gap-8">

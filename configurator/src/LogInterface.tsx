@@ -42,7 +42,7 @@ function LogInterface({
 
   return (
     <main className="flex flex-col h-screen mainContentContainer">
-      <div className="h-full w-full flex flex-col py-4 pl-2">
+      <div className="h-full w-full flex flex-col py-2 pl-2">
         <div className="flex justify-between align-middle items-center pb-2">
           <div className="flex flex-col gap-2">
             <h1 className="w-full text-2xl font-bold">Log</h1>

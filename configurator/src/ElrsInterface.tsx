@@ -4,7 +4,7 @@ import React from "react";
 
 function ElrsInterface({ tcData }: { tcData: TCData }) {
   return (
-    <main className="flex flex-col h-screen mainContentContainer">
+    <main className="flex flex-col h-screen mainContentContainer pl-2 pt-2">
       <div className="h-full w-full">
         <h1 className="w-full font-bold text-xl">ELRS Channels</h1>
         <div className="grid grid-rows-8 gap-x-4 grid-flow-col">
