@@ -8,7 +8,7 @@ use embassy_embedded_hal::flash;
 use embassy_executor::Spawner;
 use embassy_rp::flash::ERASE_SIZE;
 use embassy_sync::once_lock::OnceLock;
-use embassy_time::Timer;
+use embassy_time::{Instant, Timer};
 use embedded_storage_async::nor_flash::NorFlash;
 use heapless_7::Vec;
 use log::{error, info};

@@ -22,7 +22,7 @@ use crate::{
         control_loop::control_loop,
         dshot_handler::dshot_handler,
         elrs_transmitter::elrs_transmitter,
-        imu_loops::{mpu6050_fetcher_loop, mpu6050_processor_loop},
+        imu_loops::mpu6050_processor_loop,
         position_hold_loop::position_hold_loop,
         ultrasonic_handler::calc_ultrasonic_height_agl,
         usb_updater::{usb_task, usb_updater},
@@ -82,8 +82,7 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
         move || {
             let executor = EXECUTOR1.init(Executor::new());
             executor.run(|spawner| {
-                spawner.spawn(mpu6050_fetcher_loop(p.mpu)).unwrap();
-                spawner.spawn(mpu6050_processor_loop()).unwrap();
+                spawner.spawn(mpu6050_processor_loop(p.mpu)).unwrap();
                 spawner
                     .spawn(elrs_transmitter(p.elrs, p.pm02d_interface))
                     .unwrap();

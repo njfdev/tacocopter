@@ -150,11 +150,11 @@ function MainInterface({ tcData }: { tcData: TCData }) {
       // ];
       const updatedAccelData = [
         ...prev.datasets[0].data,
-        tcData.imuSensors?.accelerometer[chartChannel] || 0,
+        tcData.imuSensors?.accelerometer?.[chartChannel] || 0,
       ];
       const updatedGyroData = [
         ...prev.datasets[1].data,
-        (tcData.imuSensors?.gyroscope[chartChannel] || 0 / Math.PI) * 180,
+        ((tcData.imuSensors?.gyroscope?.[chartChannel] || 0) / Math.PI) * 180,
       ];
       const updatedUltrasonic = [
         ...prev.datasets[2].data,
@@ -205,8 +205,6 @@ function MainInterface({ tcData }: { tcData: TCData }) {
             <b>Uptime:</b> {formatTime(tcData.state.uptime)}
             <br />
             Target Update Frequency: {tcData.state.target_update_rate} hz
-            <br />
-            IMU Fetch Frequency: {tcData.state.imu_fetch_rate} hz
             <br />
             IMU Process Frequency: {tcData.state.imu_process_rate} hz
             <br />
@@ -343,20 +341,20 @@ function MainInterface({ tcData }: { tcData: TCData }) {
         </p> */}
         <p className="grow basis-1">
           <b>Gyro Orientation X:</b>{" "}
-          {(tcData.imuSensors?.gyroscope[0] || 0 / Math.PI) * 180}
+          {((tcData.imuSensors?.gyroscope?.[0] || 0) / Math.PI) * 180}
           <br />
           <b>Gyro Orientation Y:</b>{" "}
-          {(tcData.imuSensors?.gyroscope[1] || 0 / Math.PI) * 180}
+          {((tcData.imuSensors?.gyroscope?.[1] || 0) / Math.PI) * 180}
           <br />
           <b>Gyro Orientation Z:</b>{" "}
-          {(tcData.imuSensors?.gyroscope[2] || 0 / Math.PI) * 180}
+          {((tcData.imuSensors?.gyroscope?.[2] || 0) / Math.PI) * 180}
         </p>
         <p className="grow basis-1">
-          <b>Accel X:</b> {tcData.imuSensors?.accelerometer[0] || 0}
+          <b>Accel X:</b> {tcData.imuSensors?.accelerometer?.[0] || 0}
           <br />
-          <b>Accel Y:</b> {tcData.imuSensors?.accelerometer[1] || 0}
+          <b>Accel Y:</b> {tcData.imuSensors?.accelerometer?.[1] || 0}
           <br />
-          <b>Accel Z:</b> {tcData.imuSensors?.accelerometer[2] || 0}
+          <b>Accel Z:</b> {tcData.imuSensors?.accelerometer?.[2] || 0}
         </p>
       </div>
       <div className="min-h-[55vh] mt-4">

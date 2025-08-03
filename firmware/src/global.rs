@@ -55,8 +55,6 @@ pub static BMP390_WATCH: Watch<CriticalSectionRawMutex, (f32, f32, f32), 1> = Wa
 pub static CURRENT_ALTITUDE: Watch<CriticalSectionRawMutex, (Option<f32>, Option<f32>), 2> =
     Watch::new();
 pub static ARMED_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
-// first 3 f32s are the gyroscope data, the second are the accelerometer data
-pub static IMU_RAW_SIGNAL: Signal<CriticalSectionRawMutex, ([f32; 3], [f32; 3])> = Signal::new();
 // calibration updates
 pub static IMU_CALIB_SIGNAL: Signal<CriticalSectionRawMutex, SensorCalibrationData> = Signal::new();
 // In celsius
@@ -69,7 +67,6 @@ pub static CALIBRATION_FEEDBACK_SIGNAL: Signal<CriticalSectionRawMutex, SensorCa
     Signal::new();
 
 // frequency signals (for usb logging)
-pub static IMU_FETCH_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 pub static IMU_PROCESSOR_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 pub static CONTROL_LOOP_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 pub static POSITION_HOLD_LOOP_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> =
@@ -80,7 +77,6 @@ pub static IMU_PROCESSOR_SIGNAL: Signal<CriticalSectionRawMutex, (f32, ImuSensor
 pub static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(SharedState {
     state_data: StateData {
         target_update_rate: UPDATE_LOOP_FREQUENCY as f32,
-        imu_fetch_rate: 0.0,
         imu_process_rate: 0.0,
         control_loop_update_rate: 0.0,
         position_hold_loop_update_rate: 0.0,

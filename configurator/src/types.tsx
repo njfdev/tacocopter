@@ -9,7 +9,6 @@ export type Message =
 
 export interface State {
   target_update_rate: number;
-  imu_fetch_rate: number;
   imu_process_rate: number;
   control_loop_update_rate: number;
   position_hold_loop_update_rate: number;
