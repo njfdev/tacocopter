@@ -1,4 +1,4 @@
-import { Button, Slider, Switch } from "@heroui/react";
+import { addToast, Button, Slider, Switch } from "@heroui/react";
 import { ElrsChannels, TCData } from "./types";
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -20,9 +20,21 @@ export default function BlackboxInterface({ tcData }: { tcData: TCData }) {
 
   const start_blackbox_download = async () => {
     setIsDownloading(true);
-    let result = await invoke("start_blackbox_download", { path });
+    try {
+      let result = await invoke("start_blackbox_download", { path });
+      addToast({
+        title: "Success!",
+        description: `Downloaded ${result} logs to ${path}.`,
+        color: "success",
+      });
+    } catch (e) {
+      addToast({
+        title: "Error!",
+        description: `${e}`,
+        color: "danger",
+      });
+    }
     setIsDownloading(false);
-    console.log(result);
   };
 
   const set_black_box_enabled = async (enabled: boolean) => {
