@@ -23,7 +23,8 @@ There are 2 main applications in this project. The `firmware` directory contains
 - Supports ELRS controller with drone telemetry
   - Battery percentage/voltage reporting
   - Altitude reporting
-  - GPS positioning
+  - GPS position reporting
+  - Auto-disarm safety on controller disconnect
 - Various Sensors
   - MPU6050 IMU for determining drone orientation
   - BMP390 barometer for determining altitude
