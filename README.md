@@ -4,7 +4,7 @@
 
 # Tacocopter 🌮
 
-Starting from a personal goal set at the beginning of 2025 to build and program a drone in Rust from scratch, Tacocopter is the loving name for the project as a whole.
+Starting from a personal goal set at the beginning of 2025 to build and program a drone in Rust from scratch, Tacocopter is the loving name for the project as a whole. You can view a [showcase video of the project on YouTube](https://www.youtube.com/watch?v=A8tR219AC94)!
 
 - Programmed *from scratch* in Rust for a Raspberry Pi Pico 2
 - Custom flight controller hardware design assembled onto a breadboard
