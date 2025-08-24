@@ -1,4 +1,4 @@
-<div align="center">
+<div id="cover-image" align="center">
   <img style="width: 36rem;" alt="Tacocopter Mid-Flight Image" src="https://github.com/user-attachments/assets/a1dcea42-80fc-410e-b058-85001ea650b9" />
 </div>
 
