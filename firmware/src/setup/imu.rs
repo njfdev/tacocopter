@@ -20,7 +20,10 @@ pub async fn setup_imu(
     scl: Peri<'static, PIN_15>,
     sda: Peri<'static, PIN_14>,
 ) -> Mpu6050<i2c::I2c<'static, I2C1, i2c::Async>> {
-    let i2c = i2c::I2c::new_async(i2c1, scl, sda, I2C1Irqs, i2c::Config::default());
+    let mut i2c_conf = i2c::Config::default();
+    i2c_conf.frequency = 400_000; // max I2C frequency for fast IMU reading
+
+    let i2c = i2c::I2c::new_async(i2c1, scl, sda, I2C1Irqs, i2c_conf);
     let mut mpu = Mpu6050::new(i2c);
     let mut delay = Delay;
     mpu.init(&mut delay).unwrap();
