@@ -1,9 +1,8 @@
 use crate::{
-    drivers::{elrs::Elrs, m100_gps::init_gps, pm02d::PM02D},
+    drivers::{dshot_pio::DshotPio, elrs::Elrs, m100_gps::init_gps, pm02d::PM02D},
     setup::{barometer::setup_barometer, i2c::setup_i2c_bus, imu::setup_imu},
 };
 use bmp390::Bmp390;
-use dshot_pio::dshot_embassy_rp::DshotPio;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_rp::{

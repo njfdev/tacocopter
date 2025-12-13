@@ -1,9 +1,11 @@
-use dshot_pio::{dshot_embassy_rp::DshotPio, DshotPioTrait};
 use embassy_rp::peripherals::PIO0;
 use embassy_time::Instant;
 
 use crate::{
-    consts::DSHOT_UPDATE_FREQ, global::CONTROL_LOOP_VALUES, tools::yielding_timer::YieldingTimer,
+    consts::DSHOT_UPDATE_FREQ,
+    drivers::dshot_pio::{DshotPio, DshotPioTrait},
+    global::CONTROL_LOOP_VALUES,
+    tools::yielding_timer::YieldingTimer,
 };
 
 const MAX_THROTTLE_PERCENT: f32 = 1.0;

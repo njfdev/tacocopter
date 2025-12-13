@@ -1,5 +1,4 @@
 use bmp390::Bmp390;
-use dshot_pio::dshot_embassy_rp::DshotPio;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::{Executor, Spawner};
 use embassy_rp::{
@@ -17,7 +16,7 @@ use mpu6050::Mpu6050;
 use static_cell::StaticCell;
 
 use crate::{
-    drivers::{elrs::Elrs, pm02d::PM02D},
+    drivers::{dshot_pio::DshotPio, elrs::Elrs, pm02d::PM02D},
     tasks::{
         bmp390_handler::bmp_loop,
         control_loop::control_loop,

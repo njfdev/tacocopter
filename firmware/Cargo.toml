@@ -50,7 +50,6 @@ pio = "0.3.0"
 pio-proc = "0.3.0"
 pid = "4.0.0"
 uom = { version = "0.36", default-features = false, features = ["autoconvert", "f32", "f64", "si"] }
-dshot-pio = { git = "https://github.com/njfdev/dshot-pio.git", features = ["embassy-rp"] }
 format_no_std = "1.2.0"
 sequential-storage = { version = "4.0.3", features = ["heapless"] }
 littlefs2 = { version = "0.6.1", features = ["c-stubs", "log-all"]}
