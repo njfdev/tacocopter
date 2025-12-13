@@ -12,6 +12,7 @@ use embassy_rp::{
 };
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_usb::UsbDevice;
+use log::info;
 use mpu6050::Mpu6050;
 use static_cell::StaticCell;
 
@@ -49,20 +50,25 @@ pub struct TaskPeripherals {
 }
 
 pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
+    /*
+    NOTE: All interfacing tasks must run on core 0.
+
+    Tasks interfacing hardware peripherals have instability when run
+    on core 0 (which I've deduced through experimentation).
+
+     */
+
     // This task actually handles the USB traffic, and is I/O and timing heavy (runs on core 0)
     spawner.spawn(usb_task(p.usb)).unwrap();
 
-    /* These are the remaining core 0 tasks
-    NOTE: Only processing loops are handled here because from testing, any
-    other I/O heavy tasks on the same core as the USB handling task suffers
-    GREATLY. Therefore, any non-I/O tasks should be on core 0 to give core 1
-    room for more I/O tasks.
-    */
-    let _ = spawner.spawn(control_loop());
-    // let _ = spawner.spawn(position_hold_loop());
+    spawner.spawn(mpu6050_processor_loop(p.mpu)).unwrap();
+
     spawner
-        .spawn(usb_updater(p.usb_bulk_in, p.usb_bulk_out))
+        .spawn(elrs_transmitter(p.elrs, p.pm02d_interface))
         .unwrap();
+
+    let _ = spawner.spawn(dshot_handler(p.dshot));
+    spawner.spawn(bmp_loop(p.bmp)).unwrap();
     spawner
         .spawn(calc_ultrasonic_height_agl(
             p.ultrasonic_trig,
@@ -71,24 +77,18 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
         ))
         .unwrap();
 
-    /* As previously mention, all I/O related tasks have been moved to a
-    separate core (core 1) because in testing it yielded the best performance
-    results (e.g., reaching 500hz with the same core whereas ~250Hz was the
-    best performance with I/O tasks on core 0).
-     */
+    // spawn stuff one core 1 before core 0 gets busy
     spawn_core1(
         p.core1,
         unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
         move || {
             let executor = EXECUTOR1.init(Executor::new());
             executor.run(|spawner| {
-                spawner.spawn(mpu6050_processor_loop(p.mpu)).unwrap();
+                let _ = spawner.spawn(control_loop());
+                // let _ = spawner.spawn(position_hold_loop());
                 spawner
-                    .spawn(elrs_transmitter(p.elrs, p.pm02d_interface))
+                    .spawn(usb_updater(p.usb_bulk_in, p.usb_bulk_out))
                     .unwrap();
-
-                let _ = spawner.spawn(dshot_handler(p.dshot));
-                spawner.spawn(bmp_loop(p.bmp)).unwrap();
             });
         },
     );
