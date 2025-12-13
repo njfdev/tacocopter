@@ -7,13 +7,13 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 # After getting got twice by this, I now am solely using the GitHub version (rather than from crates.io) of
 # Embassy because for some reason there is different behavior and visibility in the GitHub version (idk why).
-embassy-embedded-hal = { version = "0.3.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt"] }
-embassy-sync = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt"] }
-embassy-executor = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "nightly"] }
-embassy-time = { version = "0.4.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-rp = { version = "0.4.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "binary-info"] }
-embassy-usb = { version = "0.4.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt"] }
-embassy-futures = { version = "0.1.1", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20" }
+embassy-embedded-hal = { version = "0.5.0", features = ["defmt"] }
+embassy-sync = { version = "0.7.2", features = ["defmt"] }
+embassy-executor = { version = "0.9.1", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "nightly"] }
+embassy-time = { version = "0.5.0", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-rp = { version = "0.9.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "binary-info"] }
+embassy-usb = { version = "0.5.1", features = ["defmt"] }
+embassy-futures = { version = "0.1.2" }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -62,7 +62,7 @@ static_assertions = "1.1.0"
 biquad = "0.5.0"
 
 [patch.crates-io]
-embassy-sync = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt"] }
+#embassy-sync = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy", rev = "206a324cf4d612122356fb350b4a3b56391d6f20", features = ["defmt"] }
 # custom patch to make the error type derive Clone
 sequential-storage = { git = "https://github.com/njfdev/sequential-storage", branch = "patch-1" }
 

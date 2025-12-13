@@ -66,8 +66,8 @@ pub fn setup_usb_interface(
     let mut function = builder.function(0xFF, 0, 0);
     let mut interface = function.interface();
     let mut alt = interface.alt_setting(0xFF, 0, 0, None);
-    let bulk_out_ep = alt.endpoint_bulk_out(64); // 64-byte packets
-    let bulk_in_ep = alt.endpoint_bulk_in(64); // 64-byte packets
+    let bulk_out_ep = alt.endpoint_bulk_out(None, 64); // 64-byte packets
+    let bulk_in_ep = alt.endpoint_bulk_in(None, 64); // 64-byte packets
     drop(function);
 
     // Build and run USB device
