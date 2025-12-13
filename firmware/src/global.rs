@@ -82,6 +82,7 @@ pub static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(Shar
         target_update_rate: UPDATE_LOOP_FREQUENCY as f32,
         imu_process_rate: 0.0,
         control_loop_update_rate: 0.0,
+        blheli_passthrough: false,
         uptime: 0,
     },
     imu_sensor_data: ImuSensorData {

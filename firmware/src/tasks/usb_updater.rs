@@ -279,6 +279,11 @@ pub async fn usb_updater(
                         .unwrap();
                         usb_send.write(&buffer).await.unwrap();
                     }
+                    ConfiguratorMessage::ToggleBlHeliPassthrough => {
+                        let mut shared = SHARED.lock().await;
+                        shared.state_data.blheli_passthrough =
+                            !shared.state_data.blheli_passthrough;
+                    }
                 }
             }
             _ => {} // either failed or timeout, so continue normally

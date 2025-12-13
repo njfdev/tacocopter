@@ -42,6 +42,7 @@ pub struct StateData {
     pub target_update_rate: f32,
     pub imu_process_rate: f32,
     pub control_loop_update_rate: f32,
+    pub blheli_passthrough: bool,
     // in seconds
     pub uptime: u32,
 }
@@ -121,6 +122,7 @@ pub struct StartGyroCalibrationData {
 pub enum ConfiguratorMessage {
     StartGyroCalibration(StartGyroCalibrationData),
     StartBlackboxDownload,
+    ToggleBlHeliPassthrough,
     SetPidSettings(PIDSettings),
     SetBlackboxEnabled(bool),
 }

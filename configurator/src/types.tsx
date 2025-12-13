@@ -12,6 +12,7 @@ export interface State {
   target_update_rate: number;
   imu_process_rate: number;
   control_loop_update_rate: number;
+  blheli_passthrough: boolean;
   uptime: number;
 }
 

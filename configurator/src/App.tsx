@@ -5,9 +5,10 @@ import { Message, TCData } from "./types";
 import { listen } from "@tauri-apps/api/event";
 import ElrsInterface from "./ElrsInterface";
 import LogInterface from "./LogInterface";
-import CalibrationInterface from "./CalibrationInterface";
+import CalibrationInterface from "./config_interface/CalibrationInterface";
 import BlackboxInterface from "./BlackboxInterface";
 import PIDConfigInterface from "./PIDConfigInterface";
+import ConfigurationInterface from "./config_interface/ConfigurationInterface";
 
 function App() {
   const [tcData, setTcData] = useState<TCData>({
@@ -16,6 +17,7 @@ function App() {
       imu_process_rate: 0,
       target_update_rate: 0,
       control_loop_update_rate: 0,
+      blheli_passthrough: false,
     },
     imuSensors: {
       // gyroscope: [0, 0, 0],
@@ -164,11 +166,8 @@ function App() {
         <Tab key="pid" title="PID Config">
           <PIDConfigInterface tcData={tcData} />
         </Tab>
-        <Tab key="calib" title="Calibration">
-          <CalibrationInterface tcData={tcData} />
-        </Tab>
-        <Tab key="blackbox" title="Blackbox">
-          <BlackboxInterface tcData={tcData} />
+        <Tab key="conf" title="Confiuration">
+          <ConfigurationInterface tcData={tcData} />
         </Tab>
         <Tab key="log" title="Logs">
           <LogInterface tcData={tcData} setTcData={setTcData} />

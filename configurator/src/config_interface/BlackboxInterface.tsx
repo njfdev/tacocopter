@@ -1,5 +1,5 @@
 import { addToast, Button, Slider, Switch } from "@heroui/react";
-import { ElrsChannels, TCData } from "./types";
+import { ElrsChannels, TCData } from "../types";
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -59,33 +59,31 @@ export default function BlackboxInterface({ tcData }: { tcData: TCData }) {
   };
 
   return (
-    <main className="flex flex-col h-screen mainContentContainer pt-2 pl-2">
-      <div className="h-full w-full">
-        <div className="w-full mb-4 flex gap-3 items-center align-middle">
-          <Switch
-            isSelected={tcData.blackbox_enabled}
-            onValueChange={set_black_box_enabled}
-          />
-          <h1 className="font-bold text-2xl">Blackbox</h1>
-        </div>
-        <p className="font-bold">Location to Save Blackbox File</p>
-        <Button
-          className="mb-4"
-          variant="ghost"
-          onPress={() => open_save_file_dialog()}
-          endContent={<FaDownload />}
-        >
-          {path}
-        </Button>
-        <div className="max-w-xl flex flex-col gap-8">
-          <Button
-            onPress={() => start_blackbox_download()}
-            isLoading={isDownloading}
-          >
-            Start Download
-          </Button>
-        </div>
+    <div className="mainContentContainer">
+      <div className="w-full mb-4 flex gap-3 items-center align-middle">
+        <Switch
+          isSelected={tcData.blackbox_enabled}
+          onValueChange={set_black_box_enabled}
+        />
+        <h1 className="font-bold text-2xl">Blackbox</h1>
       </div>
-    </main>
+      <p className="font-bold">Location to Save Blackbox File</p>
+      <Button
+        className="mb-4 max-w-lg"
+        variant="ghost"
+        onPress={() => open_save_file_dialog()}
+        endContent={<FaDownload />}
+      >
+        {path}
+      </Button>
+      <div className="max-w-xl flex flex-col gap-8">
+        <Button
+          onPress={() => start_blackbox_download()}
+          isLoading={isDownloading}
+        >
+          Start Download
+        </Button>
+      </div>
+    </div>
   );
 }
