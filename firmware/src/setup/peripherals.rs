@@ -1,5 +1,5 @@
 use crate::{
-    drivers::{dshot_pio::DshotPio, elrs::Elrs, m100_gps::init_gps, pm02d::PM02D},
+    drivers::{elrs::Elrs, esc::dshot_pio::DshotPio, m100_gps::init_gps, pm02d::PM02D},
     setup::{barometer::setup_barometer, i2c::setup_i2c_bus, imu::setup_imu},
 };
 use bmp390::Bmp390;
@@ -71,8 +71,7 @@ pub async fn setup_peripherals(spawner: Spawner, p: SetupPeripherals) -> TcDevic
 
     let mpu = setup_imu(p.mpu_i2c1_interface, p.mpu_scl, p.mpu_sda).await;
 
-    let divider = (clk_sys_freq() as f32) / (8.0 * 600_000.0);
-    let divider_whole = divider.floor();
+    let target_freq = 8 * 600_000;
     let dshot = DshotPio::<4, _>::new(
         p.dshot_pio,
         Pio0Irqs,
@@ -80,10 +79,7 @@ pub async fn setup_peripherals(spawner: Spawner, p: SetupPeripherals) -> TcDevic
         p.dshot_mtr_2,
         p.dshot_mtr_3,
         p.dshot_mtr_4,
-        (
-            divider_whole as u16,
-            ((divider - divider_whole) * 256.0) as u8,
-        ), // divider ratio of 31.25 for 150Mhz for DShot600
+        target_freq, // freq of DShot600 x8 (for extra time to do operations)
     );
 
     let pm02d_interface = PM02D::new(I2cDevice::new(i2c0_bus)).await;

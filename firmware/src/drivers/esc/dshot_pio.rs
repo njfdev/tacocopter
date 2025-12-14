@@ -1,6 +1,6 @@
 // modified from https://github.com/peterkrull/dshot-pio
 
-use crate::drivers::dshot_encoder as dshot;
+use super::dshot_encoder as dshot;
 
 pub trait DshotPioTrait<const N: usize> {
     fn command(&mut self, command: [u16; N]);
@@ -12,6 +12,7 @@ pub trait DshotPioTrait<const N: usize> {
 use embassy_rp::{
     interrupt::typelevel::Binding,
     pio::{Config, Instance, InterruptHandler, Pio, PioPin, ShiftConfig, ShiftDirection::Left},
+    pio_programs::clock_divider::calculate_pio_clock_divider,
     Peri,
 };
 #[allow(dead_code)]
@@ -22,7 +23,7 @@ pub struct DshotPio<'a, const N: usize, PIO: Instance> {
 fn configure_pio_instance<'a, PIO: Instance>(
     pio: Peri<'a, PIO>,
     irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>,
-    clk_div: (u16, u8),
+    target_freq: u32,
 ) -> (Config<'a, PIO>, Pio<'a, PIO>) {
     // Define program
     let dshot_pio_program = embassy_rp::pio::program::pio_asm!(
@@ -58,7 +59,7 @@ fn configure_pio_instance<'a, PIO: Instance>(
         &pio.common.load_program(&dshot_pio_program.program.into()),
         &[],
     );
-    cfg.clock_divider = clk_div.0.into();
+    cfg.clock_divider = calculate_pio_clock_divider(target_freq);
 
     cfg.shift_in = ShiftConfig {
         auto_fill: true,
@@ -79,84 +80,6 @@ fn configure_pio_instance<'a, PIO: Instance>(
 /// Defining constructor functions
 ///
 
-impl<'a, PIO: Instance> DshotPio<'a, 1, PIO> {
-    pub fn new(
-        pio: Peri<'a, PIO>,
-        irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>,
-        pin0: Peri<'a, impl PioPin>,
-        clk_div: (u16, u8),
-    ) -> DshotPio<'a, 1, PIO> {
-        let (mut cfg, mut pio) = configure_pio_instance(pio, irq, clk_div);
-
-        // Set pins and enable all state machines
-        let pin0 = pio.common.make_pio_pin(pin0);
-        cfg.set_set_pins(&[&pin0]);
-        pio.sm0.set_config(&cfg);
-        pio.sm0.set_enable(true);
-
-        // Return struct of 1 configured DShot state machine
-        DshotPio { pio_instance: pio }
-    }
-}
-
-impl<'a, PIO: Instance> DshotPio<'a, 2, PIO> {
-    pub fn new(
-        pio: Peri<'a, PIO>,
-        irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>,
-        pin0: Peri<'a, impl PioPin>,
-        pin1: Peri<'a, impl PioPin>,
-        clk_div: (u16, u8),
-    ) -> DshotPio<'a, 2, PIO> {
-        let (mut cfg, mut pio) = configure_pio_instance(pio, irq, clk_div);
-
-        // Set pins and enable all state machines
-        let pin0 = pio.common.make_pio_pin(pin0);
-        cfg.set_set_pins(&[&pin0]);
-        pio.sm0.set_config(&cfg);
-        pio.sm0.set_enable(true);
-
-        let pin1 = pio.common.make_pio_pin(pin1);
-        cfg.set_set_pins(&[&pin1]);
-        pio.sm1.set_config(&cfg);
-        pio.sm1.set_enable(true);
-
-        // Return struct of 2 configured DShot state machines
-        DshotPio { pio_instance: pio }
-    }
-}
-
-impl<'a, PIO: Instance> DshotPio<'a, 3, PIO> {
-    pub fn new(
-        pio: Peri<'a, PIO>,
-        irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>,
-        pin0: Peri<'a, impl PioPin>,
-        pin1: Peri<'a, impl PioPin>,
-        pin2: Peri<'a, impl PioPin>,
-        clk_div: (u16, u8),
-    ) -> DshotPio<'a, 3, PIO> {
-        let (mut cfg, mut pio) = configure_pio_instance(pio, irq, clk_div);
-
-        // Set pins and enable all state machines
-        let pin0 = pio.common.make_pio_pin(pin0);
-        cfg.set_set_pins(&[&pin0]);
-        pio.sm0.set_config(&cfg);
-        pio.sm0.set_enable(true);
-
-        let pin1 = pio.common.make_pio_pin(pin1);
-        cfg.set_set_pins(&[&pin1]);
-        pio.sm1.set_config(&cfg);
-        pio.sm1.set_enable(true);
-
-        let pin2 = pio.common.make_pio_pin(pin2);
-        cfg.set_set_pins(&[&pin2]);
-        pio.sm2.set_config(&cfg);
-        pio.sm2.set_enable(true);
-
-        // Return struct of 3 configured DShot state machines
-        DshotPio { pio_instance: pio }
-    }
-}
-
 impl<'a, PIO: Instance> DshotPio<'a, 4, PIO> {
     pub fn new(
         pio: Peri<'a, PIO>,
@@ -165,9 +88,9 @@ impl<'a, PIO: Instance> DshotPio<'a, 4, PIO> {
         pin1: Peri<'a, impl PioPin>,
         pin2: Peri<'a, impl PioPin>,
         pin3: Peri<'a, impl PioPin>,
-        clk_div: (u16, u8),
+        target_freq: u32,
     ) -> DshotPio<'a, 4, PIO> {
-        let (mut cfg, mut pio) = configure_pio_instance(pio, irq, clk_div);
+        let (mut cfg, mut pio) = configure_pio_instance(pio, irq, target_freq);
 
         // Set pins and enable all state machines
         let pin0 = pio.common.make_pio_pin(pin0);

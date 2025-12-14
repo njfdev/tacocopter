@@ -1,6 +1,5 @@
-pub mod dshot_encoder;
-pub mod dshot_pio;
 pub mod elrs;
+pub mod esc;
 pub mod hc_sr04;
 pub mod m100_gps;
 pub mod pm02d;

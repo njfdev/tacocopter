@@ -3,7 +3,7 @@ use embassy_time::Instant;
 
 use crate::{
     consts::DSHOT_UPDATE_FREQ,
-    drivers::dshot_pio::{DshotPio, DshotPioTrait},
+    drivers::esc::dshot_pio::{DshotPio, DshotPioTrait},
     global::CONTROL_LOOP_VALUES,
     tools::yielding_timer::YieldingTimer,
 };

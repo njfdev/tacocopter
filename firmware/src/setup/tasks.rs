@@ -16,7 +16,7 @@ use mpu6050::Mpu6050;
 use static_cell::StaticCell;
 
 use crate::{
-    drivers::{dshot_pio::DshotPio, elrs::Elrs, pm02d::PM02D},
+    drivers::{elrs::Elrs, esc::dshot_pio::DshotPio, pm02d::PM02D},
     tasks::{
         bmp390_handler::bmp_loop,
         control_loop::control_loop,
