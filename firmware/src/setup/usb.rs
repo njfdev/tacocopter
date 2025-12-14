@@ -4,8 +4,12 @@ use embassy_rp::{
     usb::{Driver, Endpoint, In, InterruptHandler, Out},
     Peri,
 };
-use embassy_usb::{Builder, Handler, UsbDevice};
+use embassy_usb::{
+    class::cdc_acm::{CdcAcmClass, State},
+    Builder, Handler, UsbDevice,
+};
 use log::info;
+use static_cell::StaticCell;
 use tc_interface::{TC_PID, TC_VID};
 
 use crate::global::USB_ENABLED;
@@ -34,6 +38,7 @@ pub fn setup_usb_interface(
     UsbDevice<'static, Driver<'static, USB>>,
     Endpoint<'static, USB, In>,
     Endpoint<'static, USB, Out>,
+    CdcAcmClass<'static, Driver<'static, USB>>,
 ) {
     let driver = Driver::new(usb_peripheral, UsbIrq);
 
@@ -70,8 +75,15 @@ pub fn setup_usb_interface(
     let bulk_in_ep = alt.endpoint_bulk_in(None, 64); // 64-byte packets
     drop(function);
 
+    // create serial interface
+    let serial_class = {
+        static STATE: StaticCell<State> = StaticCell::new();
+        let state = STATE.init(State::new());
+        CdcAcmClass::new(&mut builder, state, 64)
+    };
+
     // Build and run USB device
     let usb = builder.build();
 
-    (usb, bulk_in_ep, bulk_out_ep)
+    (usb, bulk_in_ep, bulk_out_ep, serial_class)
 }

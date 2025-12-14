@@ -14,10 +14,13 @@ use embassy_futures::yield_now;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
 use embassy_rp::gpio::Level;
+use embassy_rp::usb::{self, Driver};
 use embassy_sync::lazy_lock::LazyLock;
 use embassy_time::Timer;
+use embassy_usb::class::cdc_acm::CdcAcmClass;
+use embassy_usb::driver::EndpointError;
 use heapless::String;
-use log::warn;
+use log::{info, warn};
 
 use crate::drivers::tc_log::TcUsbLogger;
 use crate::global::{BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, USB_ENABLED};
@@ -68,7 +71,7 @@ async fn main(spawner: Spawner) {
     // this initializes BOOT_TIME with the current clock time immediately
     LazyLock::get(&BOOT_TIME);
 
-    let (usb, bulk_in, bulk_out) = setup_usb_interface(p.USB);
+    let (usb, bulk_in, bulk_out, mut serial_class) = setup_usb_interface(p.USB);
 
     // setup logging
     TcUsbLogger::init().unwrap();
@@ -141,6 +144,10 @@ async fn main(spawner: Spawner) {
     }
 
     loop {
+        // handle serial stuff
+        // serial_class.wait_connection().await;
+        // let _ = echo(&mut serial_class).await;
+
         // blinking the onboard led can let us determine 2 pieces of important information without a debugger probe
         // 1. If the LED isn't blinking, the FC crashed
         // 2. If the LED blinking speed is inconsistent, the FC is overloaded
@@ -156,24 +163,28 @@ async fn main(spawner: Spawner) {
         } else {
             blink_led(&mut tc_devices.status_led, imu_process_freq).await;
         }
+    }
+}
 
-        // TcStore::set(SensorCalibrationData {
-        //     gyro_biases: (-0.0356924, -0.0230041, -0.03341522),
-        //     accel_biases: (0.044174805, -0.063529054, 0.07425296),
-        // })
-        // .await;
-        // info!("Data: {:?}", TcStore::get::<SensorCalibrationData>().await);
+struct Disconnected {}
 
-        // tc_println!("Voltage: {}V", voltage);
-        // tc_println!("Current: {}A", current);
-        // tc_println!(
-        //     "Estimated State: {:.2}%, {:.2} mins remaining",
-        //     percent,
-        //     mins_remaining
-        // );
-        // tc_println!(
-        //     "Used capacity: {:.1}mah",
-        //     (pm02d_interface.get_used_capacity())
-        // );
+impl From<EndpointError> for Disconnected {
+    fn from(val: EndpointError) -> Self {
+        match val {
+            EndpointError::BufferOverflow => panic!("Buffer overflow"),
+            EndpointError::Disabled => Disconnected {},
+        }
+    }
+}
+
+async fn echo<'d, T: usb::Instance + 'd>(
+    class: &mut CdcAcmClass<'d, Driver<'d, T>>,
+) -> Result<(), Disconnected> {
+    let mut buf = [0; 64];
+    loop {
+        let n = class.read_packet(&mut buf).await?;
+        let data = &buf[..n];
+        info!("data: {:?}", data);
+        class.write_packet(data).await?;
     }
 }
