@@ -118,7 +118,10 @@ async fn main(spawner: Spawner) {
             usb,
             usb_bulk_in: bulk_in,
             usb_bulk_out: bulk_out,
+            esc_pins: tc_devices.esc_pins,
             dshot: tc_devices.dshot,
+            blheli_passthrough: tc_devices.blheli_passthrough,
+            serial_class,
             mpu: tc_devices.mpu,
             ultrasonic_trig: p.PIN_16,
             ultrasonic_echo: p.PIN_17,
@@ -163,28 +166,5 @@ async fn main(spawner: Spawner) {
         } else {
             blink_led(&mut tc_devices.status_led, imu_process_freq).await;
         }
-    }
-}
-
-struct Disconnected {}
-
-impl From<EndpointError> for Disconnected {
-    fn from(val: EndpointError) -> Self {
-        match val {
-            EndpointError::BufferOverflow => panic!("Buffer overflow"),
-            EndpointError::Disabled => Disconnected {},
-        }
-    }
-}
-
-async fn echo<'d, T: usb::Instance + 'd>(
-    class: &mut CdcAcmClass<'d, Driver<'d, T>>,
-) -> Result<(), Disconnected> {
-    let mut buf = [0; 64];
-    loop {
-        let n = class.read_packet(&mut buf).await?;
-        let data = &buf[..n];
-        info!("data: {:?}", data);
-        class.write_packet(data).await?;
     }
 }

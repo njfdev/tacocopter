@@ -1,5 +1,10 @@
 use crate::{
-    drivers::{elrs::Elrs, esc::dshot_pio::DshotPio, m100_gps::init_gps, pm02d::PM02D},
+    drivers::{
+        elrs::Elrs,
+        esc::{blheli_passthrough::BlHeliPassthrough, dshot_pio::DshotPio, EscPins},
+        m100_gps::init_gps,
+        pm02d::PM02D,
+    },
     setup::{barometer::setup_barometer, i2c::setup_i2c_bus, imu::setup_imu},
 };
 use bmp390::Bmp390;
@@ -14,6 +19,7 @@ use embassy_rp::{
         I2C0, I2C1, PIN_0, PIN_1, PIN_14, PIN_15, PIN_2, PIN_20, PIN_21, PIN_3, PIN_4, PIN_5,
         PIN_8, PIN_9, PIO0, UART0, UART1,
     },
+    pio::{Instance, Pio},
     uart::BufferedUartTx,
     Peri,
 };
@@ -51,7 +57,9 @@ pub struct TcDevices {
     pub bmp: Bmp390<I2cDevice<'static, CriticalSectionRawMutex, I2c<'static, I2C0, Async>>>,
     pub gps: BufferedUartTx,
     pub elrs: Elrs,
+    pub esc_pins: EscPins<'static, PIO0>,
     pub dshot: DshotPio<'static, 4, PIO0>,
+    pub blheli_passthrough: BlHeliPassthrough<'static, PIO0>,
     pub pm02d_interface: Option<PM02D>,
     pub status_led: Output<'static>,
 }
@@ -71,16 +79,16 @@ pub async fn setup_peripherals(spawner: Spawner, p: SetupPeripherals) -> TcDevic
 
     let mpu = setup_imu(p.mpu_i2c1_interface, p.mpu_scl, p.mpu_sda).await;
 
-    let target_freq = 8 * 600_000;
-    let dshot = DshotPio::<4, _>::new(
+    let esc_pins = EscPins::new(
         p.dshot_pio,
         Pio0Irqs,
         p.dshot_mtr_1,
         p.dshot_mtr_2,
         p.dshot_mtr_3,
         p.dshot_mtr_4,
-        target_freq, // freq of DShot600 x8 (for extra time to do operations)
     );
+    let dshot = DshotPio::new();
+    let blheli_passthrough = BlHeliPassthrough::new();
 
     let pm02d_interface = PM02D::new(I2cDevice::new(i2c0_bus)).await;
 
@@ -89,7 +97,9 @@ pub async fn setup_peripherals(spawner: Spawner, p: SetupPeripherals) -> TcDevic
         bmp,
         gps,
         elrs: elrs_handle,
+        esc_pins,
         dshot,
+        blheli_passthrough,
         pm02d_interface,
         status_led: led,
     }

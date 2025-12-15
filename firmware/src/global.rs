@@ -65,6 +65,8 @@ pub static IMU_CALIB_SIGNAL: Signal<CriticalSectionRawMutex, SensorCalibrationDa
 // In celsius
 pub static TEMPERATURE: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 
+pub static FC_PASSTHROUGH_SIGNAL: Signal<CriticalSectionRawMutex, bool> = Signal::new();
+
 // for negotiating and sending sensor calibration between imu and usb loops
 pub static START_CALIBRATION_SIGNAL: Signal<CriticalSectionRawMutex, CalibrationSensorType> =
     Signal::new();

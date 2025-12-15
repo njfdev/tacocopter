@@ -24,8 +24,9 @@ use crate::{
     },
     global::{
         CalibrationSensorType, BLACKBOX_SETTINGS_WATCH, BOOT_TIME, CALIBRATION_FEEDBACK_SIGNAL,
-        CONTROL_LOOP_FREQUENCY_SIGNAL, IMU_PROCESSOR_FREQUENCY_WATCH, IMU_WATCH, LOG_CHANNEL,
-        PID_WATCH, SHARED, START_CALIBRATION_SIGNAL, ULTRASONIC_WATCH, USB_ENABLED,
+        CONTROL_LOOP_FREQUENCY_SIGNAL, FC_PASSTHROUGH_SIGNAL, IMU_PROCESSOR_FREQUENCY_WATCH,
+        IMU_WATCH, LOG_CHANNEL, PID_WATCH, SHARED, START_CALIBRATION_SIGNAL, ULTRASONIC_WATCH,
+        USB_ENABLED,
     },
     tools::yielding_timer::YieldingTimer,
 };
@@ -56,6 +57,7 @@ pub async fn usb_updater(
     let mut blackbox_settings = TcStore::get::<BlackboxSettings>().await;
     let blackbox_settings_sender = BLACKBOX_SETTINGS_WATCH.sender();
     let mut imu_processor_freq_receiver = IMU_PROCESSOR_FREQUENCY_WATCH.receiver().unwrap();
+    let mut last_passthrough_enabled = false;
     loop {
         // wait to run until USB is plugged in
         loop {
@@ -66,6 +68,16 @@ pub async fn usb_updater(
 
             if is_usb_enabled {
                 break;
+            }
+
+            // if usb disabled, then disable USB fc passthrough
+            if last_passthrough_enabled {
+                {
+                    let mut shared = SHARED.lock().await;
+                    shared.state_data.blheli_passthrough = false;
+                }
+                last_passthrough_enabled = false;
+                FC_PASSTHROUGH_SIGNAL.signal(false);
             }
 
             YieldingTimer::after_millis(50).await;
@@ -97,6 +109,11 @@ pub async fn usb_updater(
             sensor_data = shared.sensor_data.clone();
             calibration_data = shared.calibration_data.clone();
             elrs_channels = shared.elrs_channels.clone();
+        }
+
+        if last_passthrough_enabled != state_data.blheli_passthrough {
+            last_passthrough_enabled = state_data.blheli_passthrough;
+            FC_PASSTHROUGH_SIGNAL.signal(last_passthrough_enabled);
         }
 
         let imu_res = imu_receiver.try_changed();

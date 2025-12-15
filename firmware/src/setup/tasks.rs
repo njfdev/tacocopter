@@ -10,18 +10,22 @@ use embassy_rp::{
     Peri,
 };
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_usb::UsbDevice;
+use embassy_usb::{class::cdc_acm::CdcAcmClass, UsbDevice};
 use log::info;
 use mpu6050::Mpu6050;
 use static_cell::StaticCell;
 
 use crate::{
-    drivers::{elrs::Elrs, esc::dshot_pio::DshotPio, pm02d::PM02D},
+    drivers::{
+        elrs::Elrs,
+        esc::{blheli_passthrough::BlHeliPassthrough, dshot_pio::DshotPio, EscPins},
+        pm02d::PM02D,
+    },
     tasks::{
         bmp390_handler::bmp_loop,
         control_loop::control_loop,
-        dshot_handler::dshot_handler,
         elrs_transmitter::elrs_transmitter,
+        esc_handler::esc_handler,
         imu_loops::mpu6050_processor_loop,
         position_hold_loop::position_hold_loop,
         ultrasonic_handler::calc_ultrasonic_height_agl,
@@ -39,7 +43,10 @@ pub struct TaskPeripherals {
     pub usb: UsbDevice<'static, Driver<'static, USB>>,
     pub usb_bulk_in: Endpoint<'static, USB, In>,
     pub usb_bulk_out: Endpoint<'static, USB, Out>,
+    pub esc_pins: EscPins<'static, PIO0>,
     pub dshot: DshotPio<'static, 4, PIO0>,
+    pub blheli_passthrough: BlHeliPassthrough<'static, PIO0>,
+    pub serial_class: CdcAcmClass<'static, Driver<'static, USB>>,
     pub mpu: Mpu6050<i2c::I2c<'static, I2C1, i2c::Async>>,
     pub ultrasonic_trig: Peri<'static, PIN_16>,
     pub ultrasonic_echo: Peri<'static, PIN_17>,
@@ -66,7 +73,12 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
         .spawn(elrs_transmitter(p.elrs, p.pm02d_interface))
         .unwrap();
 
-    let _ = spawner.spawn(dshot_handler(p.dshot));
+    let _ = spawner.spawn(esc_handler(
+        p.esc_pins,
+        p.dshot,
+        p.blheli_passthrough,
+        p.serial_class,
+    ));
     spawner.spawn(bmp_loop(p.bmp)).unwrap();
     spawner
         .spawn(calc_ultrasonic_height_agl(
