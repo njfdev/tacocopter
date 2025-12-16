@@ -9,11 +9,22 @@ const MSP_FC_VARIANT: u8 = 0x02;
 const MSP_FC_VERSION: u8 = 0x03;
 const MSP_BOARD_INFO: u8 = 0x04;
 const MSP_BUILD_INFO: u8 = 0x05;
+const MSP_FEATURE_CONFIG: u8 = 0x24;
+const MSP_MOTOR: u8 = 0x68;
+const MSP_BATTERY_STATE: u8 = 0x82;
 const MSP_UID: u8 = 0xA0;
 
 const MSP_PROTOCOL_VERSION: u8 = 0;
 const API_VERSION_MAJOR: u8 = 1;
 const API_VERSION_MINOR: u8 = 42;
+
+fn calc_crc(data: &[u8]) -> u8 {
+    let mut crc = data[3] ^ data[4];
+    for i in 5..data.len() {
+        crc ^= data[i];
+    }
+    crc
+}
 
 pub fn process_msp<'a, PIO: Instance>(
     // passthrough: &mut BlHeliPassthrough<'a, PIO>,
@@ -30,7 +41,7 @@ pub fn process_msp<'a, PIO: Instance>(
     tx_buffer[2] = 0x3E;
     tx_buffer[4] = cmd;
 
-    if cmd != rx_crc {
+    if calc_crc(&rx_buffer[..(rx_len - 1)]) != rx_crc {
         warn!("Command ({:x?}) did not match crc ({:x?}", cmd, rx_crc);
         return None;
     }
@@ -100,6 +111,22 @@ pub fn process_msp<'a, PIO: Instance>(
         MSP_BUILD_INFO => {
             tx_buffer[3] = 26;
         }
+        MSP_FEATURE_CONFIG => {
+            tx_buffer[3] = 4;
+        }
+        MSP_MOTOR => {
+            tx_buffer[3] = 16; // 8 total motors (we'll only have 4)
+
+            // 1000 for running motors, 0 for stopped
+            for i in 0..4 {
+                tx_buffer[5 + (i * 2)] = 0xE8;
+                tx_buffer[5 + (i * 2) + 1] = 0x03;
+            }
+        }
+        MSP_BATTERY_STATE => {
+            tx_buffer[3] = 10;
+            // TODO: actually pull PM02D battery levels here
+        }
         MSP_UID => {
             tx_buffer[3] = 12;
         }
@@ -110,12 +137,7 @@ pub fn process_msp<'a, PIO: Instance>(
     }
 
     let tx_len = tx_buffer[3] as usize + 5;
-
-    let mut crc = tx_buffer[3] ^ tx_buffer[4];
-    for i in 5..tx_len {
-        crc ^= tx_buffer[i];
-    }
-    tx_buffer[tx_len] = crc;
+    tx_buffer[tx_len] = calc_crc(&tx_buffer[..tx_len]);
 
     return Some((tx_buffer, tx_len + 1));
 }
