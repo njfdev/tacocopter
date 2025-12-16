@@ -23,6 +23,7 @@ struct AppState {
     is_usb_loop_running: bool,
     start_gyro_calibration: bool,
     toggle_blheli_passthrough: bool,
+    reset_to_usb_boot: bool,
     start_blackbox_download: Option<(String, async_runtime::Sender<Result<usize, String>>)>,
     new_pid_settings: Option<PIDSettings>,
     blackbox_enabled: Option<bool>,
@@ -42,6 +43,7 @@ pub fn run() {
             start_gyro_calibration,
             start_blackbox_download,
             toggle_blheli_passthrough,
+            reset_to_usb_boot,
             set_pid_settings,
             set_blackbox_enabled
         ])
@@ -95,6 +97,14 @@ async fn toggle_blheli_passthrough(app: AppHandle) -> Result<(), ()> {
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
     state.toggle_blheli_passthrough = true;
+    Ok(())
+}
+
+#[tauri::command]
+async fn reset_to_usb_boot(app: AppHandle) -> Result<(), ()> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    state.reset_to_usb_boot = true;
     Ok(())
 }
 
@@ -280,6 +290,27 @@ async fn start_usb_loop(app: AppHandle) -> Result<(), ()> {
 
             println!(
                 "Set request to toggle BlHeli FC Passthrough with result: {:#?}",
+                n_result
+            );
+        }
+
+        // if needing to reset to usb boot, then do it
+        let reset_to_usb_boot: bool;
+        {
+            let state = app.state::<Mutex<AppState>>();
+            let mut state = state.lock().unwrap();
+            reset_to_usb_boot = state.reset_to_usb_boot;
+            state.reset_to_usb_boot = false;
+        }
+        if reset_to_usb_boot {
+            postcard::to_slice(&ConfiguratorMessage::ResetToUsbBoot, &mut buf).unwrap();
+
+            let n_result: Result<usize, String> = handle
+                .write_bulk(out_endpoint, &mut buf, std::time::Duration::from_secs(999))
+                .map_err(|e| e.to_string());
+
+            println!(
+                "Set request to reset to USB boot with result: {:#?}",
                 n_result
             );
         }

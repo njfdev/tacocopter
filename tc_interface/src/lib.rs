@@ -123,6 +123,7 @@ pub enum ConfiguratorMessage {
     StartGyroCalibration(StartGyroCalibrationData),
     StartBlackboxDownload,
     ToggleBlHeliPassthrough,
+    ResetToUsbBoot,
     SetPidSettings(PIDSettings),
     SetBlackboxEnabled(bool),
 }

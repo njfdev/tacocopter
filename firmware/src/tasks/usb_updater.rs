@@ -3,6 +3,7 @@ use embassy_futures::select::{select, Either};
 use embassy_rp::{
     gpio::{AnyPin, Level, Output},
     peripherals::USB,
+    rom_data::reset_to_usb_boot,
     usb::{Driver, Endpoint, In, Out},
 };
 use embassy_time::Instant;
@@ -300,6 +301,9 @@ pub async fn usb_updater(
                         let mut shared = SHARED.lock().await;
                         shared.state_data.blheli_passthrough =
                             !shared.state_data.blheli_passthrough;
+                    }
+                    ConfiguratorMessage::ResetToUsbBoot => {
+                        reset_to_usb_boot(25, 0);
                     }
                 }
             }
