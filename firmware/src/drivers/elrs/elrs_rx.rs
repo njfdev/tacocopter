@@ -1,7 +1,8 @@
-use crate::global::{ELRS_SIGNAL, SHARED};
 use embassy_rp::uart::BufferedUartRx;
 use embedded_io_async::Read;
 use log::{debug, error, trace, warn};
+
+use crate::global::ELRS_WATCH;
 
 const BUF_LENGTH: usize = 1024;
 
@@ -127,7 +128,7 @@ async fn handle_packet(data: &[u8], len: usize) {
     match frame_type {
         // RC Channels Packed Payload
         0x16 => {
-            /* The data should be 25 bytes long because this packet
+            /* The data should be 26 bytes long because this packet
              * type packets 16 channels into 22 bytes. The check byte,
              * the length byte, the frame type byte, and crc byte,
              * add 4 to that.
@@ -140,11 +141,7 @@ async fn handle_packet(data: &[u8], len: usize) {
             } else {
                 let chnls = unpack_rc_bits(&data[3..25].try_into().unwrap());
 
-                {
-                    let mut shared = SHARED.lock().await;
-                    shared.elrs_channels = chnls.clone();
-                }
-                ELRS_SIGNAL.signal(chnls);
+                ELRS_WATCH.sender().send(chnls);
             }
         }
         0x14 => {

@@ -27,10 +27,6 @@ pub enum CalibrationSensorType {
 #[derive(Default)]
 pub struct SharedState {
     pub state_data: StateData,
-    pub imu_sensor_data: ImuSensorData,
-    pub sensor_data: SensorData,
-    pub calibration_data: SensorCalibrationData,
-    pub elrs_channels: [u16; 16],
 }
 
 pub static BOOT_TIME: LazyLock<Instant> = LazyLock::new(|| Instant::now());
@@ -38,7 +34,7 @@ pub static BOOT_TIME: LazyLock<Instant> = LazyLock::new(|| Instant::now());
 // pub static SHARED_LOG: Mutex<ThreadModeRawMutex, String<16384>> = Mutex::new(String::new());
 pub static LOG_CHANNEL: Channel<CriticalSectionRawMutex, LogData, 128> = Channel::new();
 
-pub static ELRS_SIGNAL: Signal<CriticalSectionRawMutex, [u16; 16]> = Signal::new();
+pub static ELRS_WATCH: Watch<CriticalSectionRawMutex, [u16; 16], 2> = Watch::new();
 // The first 3 numbers are the IMU Rates in radians per second, the second 3 are for the estimated orientation, and the last three are the accel values
 pub static IMU_WATCH: Watch<
     CriticalSectionRawMutex,
@@ -78,32 +74,6 @@ pub static IMU_PROCESSOR_FREQUENCY_WATCH: Watch<CriticalSectionRawMutex, f32, 2>
 pub static CONTROL_LOOP_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 pub static IMU_PROCESSOR_SIGNAL: Signal<CriticalSectionRawMutex, (f32, ImuSensorData)> =
     Signal::new();
-
-pub static SHARED: Mutex<CriticalSectionRawMutex, SharedState> = Mutex::new(SharedState {
-    state_data: StateData {
-        target_update_rate: UPDATE_LOOP_FREQUENCY as f32,
-        imu_process_rate: 0.0,
-        control_loop_update_rate: 0.0,
-        blheli_passthrough: false,
-        uptime: 0,
-    },
-    imu_sensor_data: ImuSensorData {
-        gyroscope: [0.0; 3],
-        accelerometer: [0.0; 3],
-        // gyro_orientation: [0.0; 4],
-        // accel_orientation: [0.0; 4],
-        // orientation: [0.0; 4],
-    },
-    sensor_data: SensorData {
-        estimated_altitude: 0.0,
-        ultrasonic_dist: 0.0,
-    },
-    calibration_data: SensorCalibrationData {
-        gyro_calibration: [0.0, 0.0, 0.0],
-        accel_calibration: [0.0, 0.0, 0.0],
-    },
-    elrs_channels: [0; 16],
-});
 
 // store access to Flash behind a mutex
 pub static FLASH_MUTEX: OnceLock<Mutex<CriticalSectionRawMutex, FlashType>> = OnceLock::new();

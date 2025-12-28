@@ -19,7 +19,7 @@ use crate::{
     },
     global::{
         ARMED_WATCH, BLACKBOX_SETTINGS_WATCH, BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL,
-        CONTROL_LOOP_VALUES, CURRENT_ALTITUDE, ELRS_SIGNAL, IMU_PROCESSOR_FREQUENCY_WATCH,
+        CONTROL_LOOP_VALUES, CURRENT_ALTITUDE, ELRS_WATCH, IMU_PROCESSOR_FREQUENCY_WATCH,
         IMU_WATCH, PID_WATCH,
     },
     tools::yielding_timer::YieldingTimer,
@@ -135,6 +135,8 @@ pub async fn control_loop() {
     let mut blackbox_enabled = blackbox_settings.enabled;
     let mut blackbox_settings_receiver = BLACKBOX_SETTINGS_WATCH.receiver().unwrap();
 
+    let mut elrs_reciever = ELRS_WATCH.receiver().unwrap();
+
     let mut should_use_position_hold = false;
     let mut since_last_log = 0;
 
@@ -215,7 +217,7 @@ pub async fn control_loop() {
             .sqrt();
         }
 
-        let chnls_recv = ELRS_SIGNAL.try_take();
+        let chnls_recv = elrs_reciever.try_changed();
         if chnls_recv.is_some() {
             let chnls = chnls_recv.unwrap();
             let new_armed = Elrs::elrs_input_to_percent(chnls[4], None) > 0.5;

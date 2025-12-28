@@ -12,22 +12,21 @@ use embassy_usb::UsbDevice;
 use heapless_7::Vec;
 use postcard::from_bytes;
 use tc_interface::{
-    ConfiguratorMessage, ImuSensorData, SensorCalibrationData, SensorData, StateData, TCMessage,
-    BLACKBOX_SEGMENT_SIZE,
+    ConfiguratorMessage, ImuSensorData, SensorData, StateData, TCMessage, BLACKBOX_SEGMENT_SIZE,
 };
 
 use crate::{
-    consts::USB_LOGGER_RATE,
+    consts::{UPDATE_LOOP_FREQUENCY, USB_LOGGER_RATE},
     drivers::tc_store::{
         blackbox::{TcBlackbox, DOUBLE_LOG_DATA_SIZE},
-        types::{BlackboxSettings, PIDValues},
+        types::{BlackboxSettings, PIDValues, SensorCalibrationData},
         TcStore,
     },
     global::{
         CalibrationSensorType, BLACKBOX_SETTINGS_WATCH, BOOT_TIME, CALIBRATION_FEEDBACK_SIGNAL,
-        CONTROL_LOOP_FREQUENCY_SIGNAL, FC_PASSTHROUGH_SIGNAL, IMU_PROCESSOR_FREQUENCY_WATCH,
-        IMU_WATCH, LOG_CHANNEL, PID_WATCH, SHARED, START_CALIBRATION_SIGNAL, ULTRASONIC_WATCH,
-        USB_ENABLED,
+        CONTROL_LOOP_FREQUENCY_SIGNAL, CURRENT_ALTITUDE, ELRS_WATCH, FC_PASSTHROUGH_SIGNAL,
+        IMU_CALIB_SIGNAL, IMU_PROCESSOR_FREQUENCY_WATCH, IMU_WATCH, LOG_CHANNEL, PID_WATCH,
+        START_CALIBRATION_SIGNAL, ULTRASONIC_WATCH, USB_ENABLED,
     },
     tools::yielding_timer::YieldingTimer,
 };
@@ -58,7 +57,17 @@ pub async fn usb_updater(
     let mut blackbox_settings = TcStore::get::<BlackboxSettings>().await;
     let blackbox_settings_sender = BLACKBOX_SETTINGS_WATCH.sender();
     let mut imu_processor_freq_receiver = IMU_PROCESSOR_FREQUENCY_WATCH.receiver().unwrap();
+    let mut altitude_reciever = CURRENT_ALTITUDE.receiver().unwrap();
+    let mut elrs_reciever = ELRS_WATCH.receiver().unwrap();
+
     let mut last_passthrough_enabled = false;
+    let mut last_imu_process_rate = 0.0;
+    let mut last_control_loop_rate = 0.0;
+    let mut last_sensor_data = SensorData::default();
+    let mut last_imu_sensor_data = ImuSensorData::default();
+    let mut last_calibration_data = TcStore::get::<SensorCalibrationData>().await;
+    let mut last_elrs_data: [u16; 16] = Default::default();
+
     loop {
         // wait to run until USB is plugged in
         loop {
@@ -73,54 +82,59 @@ pub async fn usb_updater(
 
             // if usb disabled, then disable USB fc passthrough
             if last_passthrough_enabled {
-                {
-                    let mut shared = SHARED.lock().await;
-                    shared.state_data.blheli_passthrough = false;
-                }
                 last_passthrough_enabled = false;
-                FC_PASSTHROUGH_SIGNAL.signal(false);
+                FC_PASSTHROUGH_SIGNAL.signal(last_passthrough_enabled);
             }
 
             YieldingTimer::after_millis(50).await;
         }
 
         let mut buffer = [0u8; 64];
-        let state_data: StateData;
-        let mut imu_sensor_data: ImuSensorData = ImuSensorData::default();
-        let sensor_data: SensorData;
-        let calibration_data: SensorCalibrationData;
-        let elrs_channels: [u16; 16];
-        {
-            let mut shared = SHARED.lock().await;
-            shared.state_data.uptime = BOOT_TIME.get().elapsed().as_secs() as u32;
-            let imu_process_freq = imu_processor_freq_receiver.try_changed();
-            if imu_process_freq.is_some() {
-                shared.state_data.imu_process_rate = imu_process_freq.unwrap();
-            }
-            let control_loop_freq = CONTROL_LOOP_FREQUENCY_SIGNAL.try_take();
-            if control_loop_freq.is_some() {
-                shared.state_data.control_loop_update_rate = control_loop_freq.unwrap();
-            }
-            state_data = shared.state_data.clone();
-            // imu_sensor_data = shared.imu_sensor_data.clone();
-            let ultrasonic_recv = ultrasonic_receiver.try_changed();
-            if ultrasonic_recv.is_some() {
-                shared.sensor_data.ultrasonic_dist = ultrasonic_recv.unwrap().unwrap_or(f32::NAN);
-            }
-            sensor_data = shared.sensor_data.clone();
-            calibration_data = shared.calibration_data.clone();
-            elrs_channels = shared.elrs_channels.clone();
+
+        let new_passthrough_setting = FC_PASSTHROUGH_SIGNAL.try_take();
+        if new_passthrough_setting.is_some() {
+            last_passthrough_enabled = new_passthrough_setting.unwrap();
         }
 
-        if last_passthrough_enabled != state_data.blheli_passthrough {
-            last_passthrough_enabled = state_data.blheli_passthrough;
-            FC_PASSTHROUGH_SIGNAL.signal(last_passthrough_enabled);
+        let new_imu_process_freq = imu_processor_freq_receiver.try_changed();
+        if new_imu_process_freq.is_some() {
+            last_imu_process_rate = new_imu_process_freq.unwrap();
+        }
+        let new_control_loop_freq = CONTROL_LOOP_FREQUENCY_SIGNAL.try_take();
+        if new_control_loop_freq.is_some() {
+            last_control_loop_rate = new_control_loop_freq.unwrap();
+        }
+
+        let new_calibration_data = IMU_CALIB_SIGNAL.try_take();
+        if new_calibration_data.is_some() {
+            let calibration_data = new_calibration_data.unwrap();
+            last_calibration_data = SensorCalibrationData {
+                accel_biases: calibration_data.accel_calibration.into(),
+                gyro_biases: calibration_data.gyro_calibration.into(),
+            };
+        }
+
+        let elrs_recv = elrs_reciever.try_changed();
+        if elrs_recv.is_some() {
+            last_elrs_data = elrs_recv.unwrap();
+        }
+
+        let ultrasonic_recv = ultrasonic_receiver.try_changed();
+        if ultrasonic_recv.is_some() {
+            last_sensor_data.ultrasonic_dist = ultrasonic_recv.unwrap().unwrap_or(f32::NAN);
+        }
+        let altitude_recv = altitude_reciever.try_changed();
+        if altitude_recv.is_some() {
+            let altitude_data = altitude_recv.unwrap();
+            if altitude_data.0.is_some() {
+                last_sensor_data.estimated_altitude = altitude_data.0.unwrap();
+            }
         }
 
         let imu_res = imu_receiver.try_changed();
         if imu_res.is_some() {
             let imu_data = imu_res.unwrap();
-            imu_sensor_data = ImuSensorData {
+            last_imu_sensor_data = ImuSensorData {
                 gyroscope: imu_data.0.into(),
                 accelerometer: imu_data.2.into(),
             };
@@ -131,7 +145,17 @@ pub async fn usb_updater(
         usb_send.write(&buffer).await.unwrap();
 
         // send state data
-        postcard::to_slice(&TCMessage::State(state_data), &mut buffer).unwrap();
+        postcard::to_slice(
+            &TCMessage::State(StateData {
+                target_update_rate: UPDATE_LOOP_FREQUENCY as f32,
+                imu_process_rate: last_imu_process_rate,
+                control_loop_update_rate: last_control_loop_rate,
+                blheli_passthrough: last_passthrough_enabled,
+                uptime: BOOT_TIME.get().elapsed().as_secs() as u32,
+            }),
+            &mut buffer,
+        )
+        .unwrap();
         usb_send.write(&buffer).await.unwrap();
 
         // send PID settings
@@ -151,11 +175,15 @@ pub async fn usb_updater(
         usb_send.write(&buffer).await.unwrap();
 
         // send imu sensor data
-        postcard::to_slice(&TCMessage::ImuSensor(imu_sensor_data), &mut buffer).unwrap();
+        postcard::to_slice(
+            &TCMessage::ImuSensor(last_imu_sensor_data.clone()),
+            &mut buffer,
+        )
+        .unwrap();
         usb_send.write(&buffer).await.unwrap();
 
         // send sensor data
-        postcard::to_slice(&TCMessage::Sensor(sensor_data), &mut buffer).unwrap();
+        postcard::to_slice(&TCMessage::Sensor(last_sensor_data.clone()), &mut buffer).unwrap();
         usb_send.write(&buffer).await.unwrap();
 
         // send sensor calibration data
@@ -170,7 +198,7 @@ pub async fn usb_updater(
         } else {
             postcard::to_slice(
                 &TCMessage::SensorCalibration(tc_interface::SensorCalibrationType::Data(
-                    calibration_data,
+                    last_calibration_data.clone().into(),
                 )),
                 &mut buffer,
             )
@@ -179,7 +207,7 @@ pub async fn usb_updater(
         }
 
         // send elrs channel data
-        postcard::to_slice(&TCMessage::ElrsChannels(elrs_channels), &mut buffer).unwrap();
+        postcard::to_slice(&TCMessage::ElrsChannels(last_elrs_data), &mut buffer).unwrap();
         usb_send.write(&buffer).await.unwrap();
 
         while let Ok(log_part) = LOG_CHANNEL.try_receive() {
@@ -298,9 +326,8 @@ pub async fn usb_updater(
                         usb_send.write(&buffer).await.unwrap();
                     }
                     ConfiguratorMessage::ToggleBlHeliPassthrough => {
-                        let mut shared = SHARED.lock().await;
-                        shared.state_data.blheli_passthrough =
-                            !shared.state_data.blheli_passthrough;
+                        last_passthrough_enabled = !last_passthrough_enabled;
+                        FC_PASSTHROUGH_SIGNAL.signal(last_passthrough_enabled);
                     }
                     ConfiguratorMessage::ResetToUsbBoot => {
                         reset_to_usb_boot(25, 0);

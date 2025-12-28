@@ -16,7 +16,7 @@ use crate::{
         dshot_pio::{DshotPio, DshotPioTrait},
         EscPins,
     },
-    global::{CONTROL_LOOP_VALUES, SHARED},
+    global::CONTROL_LOOP_VALUES,
     tools::yielding_timer::YieldingTimer,
 };
 
@@ -68,10 +68,7 @@ pub async fn esc_handler(
             blheli_passthrough.disable_passthrough(&mut esc_pins);
             dshot.enable_dshot(&mut esc_pins);
 
-            {
-                let mut shared = SHARED.lock().await;
-                shared.state_data.blheli_passthrough = false;
-            }
+            FC_PASSTHROUGH_SIGNAL.signal(false);
         }
 
         handle_dshot_logic(
@@ -106,7 +103,9 @@ async fn handle_passthrough_session(
     loop {
         let n = serial_class.read_packet(&mut buf).await?;
         info!("rx data: {:?}", &buf[..n]);
-        let data_res = blheli_passthrough.process_serial_data(&buf[..n]);
+        let data_res = blheli_passthrough
+            .process_serial_data(&buf[..n], esc_pins)
+            .await;
         if data_res.is_some() {
             let data = data_res.unwrap();
             let tx_data = &data.0[..data.1];

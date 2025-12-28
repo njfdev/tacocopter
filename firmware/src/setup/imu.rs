@@ -8,7 +8,7 @@ use mpu6050::Mpu6050;
 
 use crate::{
     drivers::tc_store::{types::SensorCalibrationData, TcStore},
-    global::{IMU_CALIB_SIGNAL, SHARED},
+    global::IMU_CALIB_SIGNAL,
 };
 
 bind_interrupts!(struct I2C1Irqs {
@@ -42,10 +42,6 @@ pub async fn setup_imu(
     //     accel_calibration: ACCEL_BIASES, //get_accel_offsets(&mut mpu, 10.0).await,
     //     gyro_calibration: GYRO_BIASES,
     // };
-    {
-        let mut shared = SHARED.lock().await;
-        shared.calibration_data = sensor_data.clone();
-    }
     IMU_CALIB_SIGNAL.signal(sensor_data);
     mpu
 }

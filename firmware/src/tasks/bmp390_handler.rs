@@ -10,7 +10,7 @@ use uom::si::{length::meter, pressure::kilopascal, thermodynamic_temperature::ke
 
 use crate::{
     consts::BMP_UPDATE_FREQ,
-    global::{BMP390_WATCH, SHARED, TEMPERATURE},
+    global::{BMP390_WATCH, CURRENT_ALTITUDE, TEMPERATURE},
     tools::{sorting::bubble_sort, yielding_timer::YieldingTimer},
 };
 
@@ -19,6 +19,7 @@ pub async fn bmp_loop(
     mut bmp: Bmp390<I2cDevice<'static, CriticalSectionRawMutex, I2c<'static, I2C0, Async>>>,
 ) {
     let barometer_sender = BMP390_WATCH.sender();
+    let altitude_sender = CURRENT_ALTITUDE.sender();
     let base_altitude = get_base_altitude(&mut bmp).await;
     let mut since_last = Instant::now();
     loop {
@@ -29,10 +30,8 @@ pub async fn bmp_loop(
         )
         .await;
         let measurement = bmp.altitude().await.unwrap();
-        {
-            let mut shared = SHARED.lock().await;
-            shared.sensor_data.estimated_altitude = measurement.value - base_altitude;
-        }
+        let estimated_altitude = measurement.value - base_altitude;
+        altitude_sender.send((Some(estimated_altitude), None));
         let pressure = bmp.pressure().await.unwrap();
         let temp = bmp.temperature().await.unwrap();
         barometer_sender.send((

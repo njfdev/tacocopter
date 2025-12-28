@@ -15,7 +15,7 @@ use crate::{
     drivers::tc_store::{types::SensorCalibrationData, TcStore},
     global::{
         CalibrationSensorType, CALIBRATION_FEEDBACK_SIGNAL, IMU_CALIB_SIGNAL,
-        IMU_PROCESSOR_FREQUENCY_WATCH, IMU_WATCH, SHARED, START_CALIBRATION_SIGNAL,
+        IMU_PROCESSOR_FREQUENCY_WATCH, IMU_WATCH, START_CALIBRATION_SIGNAL,
     },
     tools::{
         calibrators::imu::GyroCalibrator, kalman::KalmanFilterQuat, yielding_timer::YieldingTimer,
@@ -103,10 +103,6 @@ async fn calibration_handler(
                     let mut current_calib = TcStore::get::<SensorCalibrationData>().await;
                     current_calib.gyro_biases = bias_data;
                     TcStore::set(current_calib.clone()).await;
-                    {
-                        let mut shared = SHARED.lock().await;
-                        shared.calibration_data.gyro_calibration = bias_data.into();
-                    }
                     IMU_CALIB_SIGNAL.signal(current_calib.into());
                     CALIBRATION_FEEDBACK_SIGNAL.signal(SensorCalibrationType::GyroFinished);
                 } else {
