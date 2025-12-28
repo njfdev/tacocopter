@@ -46,7 +46,7 @@ pub static BLACKBOX_SETTINGS_WATCH: Watch<CriticalSectionRawMutex, BlackboxSetti
 // in format of (pressure in kPa, temperature in kelvin, estimated altitude in m)
 pub static BMP390_WATCH: Watch<CriticalSectionRawMutex, (f32, f32, f32), 1> = Watch::new();
 // processed in position hold control loop, for use in the control loop under position hold mode (altitude, vertical velocity)
-pub static CURRENT_ALTITUDE: Watch<CriticalSectionRawMutex, (Option<f32>, Option<f32>), 2> =
+pub static CURRENT_ALTITUDE: Watch<CriticalSectionRawMutex, (Option<f32>, Option<f32>), 3> =
     Watch::new();
 pub static ARMED_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
 // calibration updates
