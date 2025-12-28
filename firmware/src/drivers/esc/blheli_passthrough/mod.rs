@@ -13,10 +13,17 @@ use embassy_rp::{
     pio_programs::clock_divider::calculate_pio_clock_divider,
     Peri,
 };
-use log::{error, info};
+use embassy_time::{Duration, Instant};
+use log::{error, info, warn};
 use nalgebra::ComplexField;
 
-use crate::drivers::esc::{blheli_passthrough::msp::process_msp, EscPins};
+use crate::{
+    drivers::esc::{
+        blheli_passthrough::{four_way::process_4_way, msp::process_msp},
+        EscPins,
+    },
+    panic,
+};
 
 pub struct BlHeliPassthrough<'a, PIO: Instance> {
     cfg_rx: Option<Config<'a, PIO>>,
@@ -25,8 +32,11 @@ pub struct BlHeliPassthrough<'a, PIO: Instance> {
     loaded_tx_prog: Option<LoadedProgram<'a, PIO>>,
 
     // processing vars
-    len: usize,
-    buffer: [u8; 263], // max message size is 256 bytes + 7 overhead
+    rx_len: usize,
+    rx_buffer: [u8; 263], // max message size is 256 bytes + 7 overhead
+    tx_len: usize,
+    tx_buffer: [u8; 263],
+    is_4_way_passthrough_enabled: bool,
 }
 
 fn configure_programs<'a, PIO: Instance>(
@@ -109,8 +119,12 @@ impl<'a, PIO: Instance> BlHeliPassthrough<'a, PIO> {
             cfg_tx: None,
             loaded_rx_prog: None,
             loaded_tx_prog: None,
-            len: 0,
-            buffer: [0; 263],
+
+            rx_len: 0,
+            rx_buffer: [0; 263],
+            tx_len: 0,
+            tx_buffer: [0; 263],
+            is_4_way_passthrough_enabled: false,
         }
     }
 
@@ -230,44 +244,108 @@ impl<'a, PIO: Instance> BlHeliPassthrough<'a, PIO> {
         }
     }
 
-    pub fn process_serial_data(&mut self, data: &[u8]) -> Option<([u8; 263], usize)> {
-        self.buffer[self.len..(self.len + data.len())].copy_from_slice(&data[..data.len()]);
-        self.len += data.len();
+    pub async fn process_serial_data(
+        &mut self,
+        data: &[u8],
+        esc_pins: &mut EscPins<'a, PIO>,
+    ) -> Option<([u8; 263], usize)> {
+        self.rx_buffer[self.rx_len..(self.rx_len + data.len())]
+            .copy_from_slice(&data[..data.len()]);
+        self.rx_len += data.len();
 
-        if self.len == 0 {
+        if self.rx_len == 0 {
+            return None;
+        }
+
+        if self.rx_len > 263 {
+            warn!("Passthrough buffer overflow! (likely improper data handling)");
+            self.rx_len = 0;
             return None;
         }
 
         // 4 way command (256 bytes + 7 byte overhead)
-        if self.buffer[0] == 0x2F
-            && self.len > 4
-            && self.len
-                == (if self.buffer[4] != 0 {
-                    self.buffer[0] as usize
+        if self.rx_buffer[0] == 0x2F
+            && self.rx_len > 4
+            && self.rx_len
+                == (if self.rx_buffer[4] != 0 {
+                    self.rx_buffer[4] as usize
                 } else {
                     256
                 }) + 7
         {
-            self.len = 0;
-            return None;
-
-            // let tx_data = process_4_way(&self.buffer, self.len);
-            // self.len = 0;
-            // return tx_data;
+            let tx_data = process_4_way(self, esc_pins).await;
+            self.rx_len = 0;
+            return tx_data;
         }
 
         // MSP Command (6 byte overhead)
-        if self.len > 3
-            && self.len as u8 == self.buffer[3] + 6
-            && self.buffer[0] == 0x24
-            && self.buffer[1] == 0x4D
-            && self.buffer[2] == 0x3C
+        if self.rx_len > 3
+            && self.rx_len as u8 == self.rx_buffer[3] + 6
+            && self.rx_buffer[0] == 0x24
+            && self.rx_buffer[1] == 0x4D
+            && self.rx_buffer[2] == 0x3C
         {
-            let tx_data = process_msp::<PIO>(&self.buffer, self.len);
-            self.len = 0;
+            let tx_data = process_msp::<PIO>(self);
+            self.rx_len = 0;
             return tx_data;
         }
 
         None
     }
+
+    pub fn send_data_to_esc(
+        &mut self,
+        esc_pins: &mut EscPins<'a, PIO>,
+        pin: usize,
+        data: &[u8],
+        len: usize,
+        crc: bool,
+    ) {
+        let buf_len = if len == 0 { 256 } else { 0 };
+        let mut tx_crc = 0;
+
+        self.configure_tx(esc_pins);
+
+        for byte in &data[..buf_len] {
+            BlHeliPassthrough::send_esc_byte(esc_pins, pin, *byte);
+            tx_crc = passthrough_byte_crc(*byte, tx_crc);
+        }
+
+        if crc {
+            BlHeliPassthrough::send_esc_byte(esc_pins, pin, (tx_crc & 0xFF) as u8);
+            BlHeliPassthrough::send_esc_byte(esc_pins, pin, ((tx_crc >> 8) & 0xFF) as u8);
+        }
+
+        self.configure_rx(esc_pins);
+    }
+
+    // pub fn get_esc_data_for_duration(esc_pins: &mut EscPins<'a, PIO>, duration: Duration) {
+    //   let start = Instant::now();
+    //   while start.elapsed() < duration &&
+    // }
+
+    fn send_esc_byte(esc_pins: &mut EscPins<'a, PIO>, pin: usize, byte: u8) {
+        match pin {
+            0 => esc_pins.pio.sm0.tx().push(byte as u32),
+            1 => esc_pins.pio.sm1.tx().push(byte as u32),
+            2 => esc_pins.pio.sm2.tx().push(byte as u32),
+            3 => esc_pins.pio.sm3.tx().push(byte as u32),
+            _ => warn!("Can't send byte to state machine {}, ignoring...", pin),
+        }
+    }
+}
+
+fn passthrough_byte_crc(data: u8, crc: u16) -> u16 {
+    let mut xb = data;
+    let mut new_crc = crc;
+    for i in 0..8 {
+        if ((xb as u16 & 0x01) ^ (new_crc & 0x0001)) != 0 {
+            new_crc = new_crc >> 1;
+            new_crc = new_crc ^ 0xA001;
+        } else {
+            new_crc = new_crc >> 1;
+        }
+        xb = xb >> 1;
+    }
+    return new_crc;
 }

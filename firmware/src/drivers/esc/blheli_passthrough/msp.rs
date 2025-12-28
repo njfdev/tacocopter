@@ -13,10 +13,37 @@ const MSP_FEATURE_CONFIG: u8 = 0x24;
 const MSP_MOTOR: u8 = 0x68;
 const MSP_BATTERY_STATE: u8 = 0x82;
 const MSP_UID: u8 = 0xA0;
+const MSP_SET_PASSTHROUGH: u8 = 0xF5;
 
 const MSP_PROTOCOL_VERSION: u8 = 0;
 const API_VERSION_MAJOR: u8 = 1;
 const API_VERSION_MINOR: u8 = 42;
+
+enum MspFeatures {
+    FeatureRxPpm = 1 << 0,
+    FeatureInflightAccCal = 1 << 2,
+    FeatureRxSerial = 1 << 3,
+    FeatureMotorStop = 1 << 4,
+    FeatureServoTilt = 1 << 5,
+    FeatureSoftSerial = 1 << 6,
+    FeatureGps = 1 << 7,
+    FeatureRangeFinder = 1 << 9,
+    FeatureTelemetry = 1 << 10,
+    Feature3d = 1 << 12,
+    FeatureRxParallelPwm = 1 << 13,
+    FeatureRxMsp = 1 << 14,
+    FeatureRssiAdc = 1 << 15,
+    FeatureLedStrip = 1 << 16,
+    FeatureDashboard = 1 << 17,
+    FeatureOsd = 1 << 18,
+    FeatureChannelForwarding = 1 << 20,
+    FeatureTransponder = 1 << 21,
+    FeatureAirmode = 1 << 22,
+    FeatureRxSpi = 1 << 25,
+    FeatureEscSensor = 1 << 27,
+    FeatureAntiGravity = 1 << 28,
+    FeatureDynamicFilter = 1 << 29,
+}
 
 fn calc_crc(data: &[u8]) -> u8 {
     let mut crc = data[3] ^ data[4];
@@ -27,10 +54,11 @@ fn calc_crc(data: &[u8]) -> u8 {
 }
 
 pub fn process_msp<'a, PIO: Instance>(
-    // passthrough: &mut BlHeliPassthrough<'a, PIO>,
-    rx_buffer: &[u8],
-    rx_len: usize,
+    passthrough: &mut BlHeliPassthrough<'a, PIO>,
 ) -> Option<([u8; 263], usize)> {
+    let rx_buffer = passthrough.rx_buffer;
+    let rx_len = passthrough.rx_len;
+
     let cmd = rx_buffer[4];
     let rx_crc = rx_buffer[rx_len - 1];
 
@@ -113,6 +141,14 @@ pub fn process_msp<'a, PIO: Instance>(
         }
         MSP_FEATURE_CONFIG => {
             tx_buffer[3] = 4;
+
+            let features = MspFeatures::FeatureChannelForwarding as u32;
+            let feature_bytes = features.to_le_bytes();
+
+            tx_buffer[5] = feature_bytes[0];
+            tx_buffer[6] = feature_bytes[1];
+            tx_buffer[7] = feature_bytes[2];
+            tx_buffer[8] = feature_bytes[3];
         }
         MSP_MOTOR => {
             tx_buffer[3] = 16; // 8 total motors (we'll only have 4)
@@ -129,6 +165,10 @@ pub fn process_msp<'a, PIO: Instance>(
         }
         MSP_UID => {
             tx_buffer[3] = 12;
+        }
+        MSP_SET_PASSTHROUGH => {
+            tx_buffer[3] = 1;
+            tx_buffer[5] = 4; // number of ESCs connected
         }
         _ => {
             warn!("Unrecognized command: {:x?}", cmd);
