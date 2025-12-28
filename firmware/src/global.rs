@@ -23,15 +23,8 @@ pub enum CalibrationSensorType {
     Accel,
 }
 
-// TODO: split this shared state for faster performance
-#[derive(Default)]
-pub struct SharedState {
-    pub state_data: StateData,
-}
-
 pub static BOOT_TIME: LazyLock<Instant> = LazyLock::new(|| Instant::now());
 
-// pub static SHARED_LOG: Mutex<ThreadModeRawMutex, String<16384>> = Mutex::new(String::new());
 pub static LOG_CHANNEL: Channel<CriticalSectionRawMutex, LogData, 128> = Channel::new();
 
 pub static ELRS_WATCH: Watch<CriticalSectionRawMutex, [u16; 16], 2> = Watch::new();
