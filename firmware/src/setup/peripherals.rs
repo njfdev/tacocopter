@@ -16,8 +16,8 @@ use embassy_rp::{
     gpio::{AnyPin, Level, Output},
     i2c::{Async, I2c},
     peripherals::{
-        I2C0, I2C1, PIN_0, PIN_1, PIN_14, PIN_15, PIN_2, PIN_20, PIN_21, PIN_3, PIN_4, PIN_5,
-        PIN_8, PIN_9, PIO0, UART0, UART1,
+        I2C0, I2C1, PIN_0, PIN_1, PIN_14, PIN_15, PIN_16, PIN_17, PIN_2, PIN_20, PIN_21, PIN_3,
+        PIN_4, PIN_5, PIN_6, PIN_7, PIN_8, PIN_9, PIO0, UART0, UART1,
     },
     pio::{Instance, Pio},
     uart::BufferedUartTx,
@@ -33,8 +33,8 @@ bind_interrupts!(struct Pio0Irqs {
 
 pub struct SetupPeripherals {
     pub status_led: Peri<'static, AnyPin>,
-    pub elrs_tx: Peri<'static, PIN_0>,
-    pub elrs_rx: Peri<'static, PIN_1>,
+    pub elrs_tx: Peri<'static, PIN_16>,
+    pub elrs_rx: Peri<'static, PIN_17>,
     pub elrs_uart: Peri<'static, UART0>,
     pub gps_tx: Peri<'static, PIN_8>,
     pub gps_rx: Peri<'static, PIN_9>,
@@ -46,10 +46,10 @@ pub struct SetupPeripherals {
     pub mpu_scl: Peri<'static, PIN_15>,
     pub mpu_sda: Peri<'static, PIN_14>,
     pub dshot_pio: Peri<'static, PIO0>,
-    pub dshot_mtr_1: Peri<'static, PIN_2>,
-    pub dshot_mtr_2: Peri<'static, PIN_3>,
-    pub dshot_mtr_3: Peri<'static, PIN_4>,
-    pub dshot_mtr_4: Peri<'static, PIN_5>,
+    pub dshot_mtr_1: Peri<'static, PIN_4>,
+    pub dshot_mtr_2: Peri<'static, PIN_5>,
+    pub dshot_mtr_3: Peri<'static, PIN_6>,
+    pub dshot_mtr_4: Peri<'static, PIN_7>,
 }
 
 pub struct TcDevices {

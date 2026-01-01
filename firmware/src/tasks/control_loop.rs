@@ -59,7 +59,7 @@ With motor 1 and 4 CCW and motor 2 and 3 CW
       |___|
      /     \
 /---\       /---\
-| 3 |       | 4 |
+| 4 |       | 3 |
 \---/       \---/
 
       (back)
@@ -324,9 +324,9 @@ pub async fn control_loop() {
             .clamp(0.0, 1.0);
         let t2 = (current_throttle_value + pid_pitch_output - pid_roll_output + pid_yaw_output)
             .clamp(0.0, 1.0);
-        let t3 = (current_throttle_value - pid_pitch_output + pid_roll_output + pid_yaw_output)
+        let t3 = (current_throttle_value - pid_pitch_output - pid_roll_output - pid_yaw_output)
             .clamp(0.0, 1.0);
-        let t4 = (current_throttle_value - pid_pitch_output - pid_roll_output - pid_yaw_output)
+        let t4 = (current_throttle_value - pid_pitch_output + pid_roll_output + pid_yaw_output)
             .clamp(0.0, 1.0);
 
         if armed && blackbox_enabled && since_last_log > (UPDATE_LOOP_FREQUENCY / 30.0) as u32 {

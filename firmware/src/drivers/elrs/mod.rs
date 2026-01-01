@@ -1,7 +1,7 @@
 use embassy_executor::Spawner;
 use embassy_rp::{
     bind_interrupts,
-    peripherals::{PIN_0, PIN_1, UART0},
+    peripherals::{PIN_0, PIN_1, PIN_16, PIN_17, UART0},
     uart::{self, BufferedInterruptHandler, BufferedUart, BufferedUartTx},
     Peri,
 };
@@ -54,8 +54,8 @@ pub enum ElrsTxPacket {
 
 impl Elrs {
     pub fn new(
-        tx_pin: Peri<'static, PIN_0>,
-        rx_pin: Peri<'static, PIN_1>,
+        tx_pin: Peri<'static, PIN_16>,
+        rx_pin: Peri<'static, PIN_17>,
         uart: Peri<'static, UART0>,
         spawner: Spawner,
     ) -> Self {

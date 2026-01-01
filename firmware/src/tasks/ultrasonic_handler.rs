@@ -6,7 +6,7 @@ use crate::{
     global::{IMU_WATCH, ULTRASONIC_WATCH},
 };
 use embassy_rp::{
-    peripherals::{PIN_16, PIN_17, PIO1},
+    peripherals::{PIN_16, PIN_17, PIN_18, PIN_19, PIO1},
     Peri,
 };
 use embassy_time::Timer;
@@ -14,8 +14,8 @@ use micromath::F32Ext;
 
 #[embassy_executor::task]
 pub async fn calc_ultrasonic_height_agl(
-    trig_pin_peripheral: Peri<'static, PIN_16>,
-    echo_pin_peripheral: Peri<'static, PIN_17>,
+    trig_pin_peripheral: Peri<'static, PIN_18>,
+    echo_pin_peripheral: Peri<'static, PIN_19>,
     pio: Peri<'static, PIO1>,
 ) {
     let mut ultrasonic_sensor = HcSr04::new(trig_pin_peripheral, echo_pin_peripheral, pio);
