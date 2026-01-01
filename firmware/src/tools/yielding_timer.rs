@@ -18,17 +18,9 @@ impl YieldingTimer {
         Instant::now()
     }
     pub async fn after_millis(time: u64) -> Instant {
-        let start = Instant::now();
-        while start.elapsed().as_millis() < time {
-            yield_now().await;
-        }
-        Instant::now()
+        Self::after_micros(time * 1000).await
     }
     pub async fn after_secs(time: u64) -> Instant {
-        let start = Instant::now();
-        while start.elapsed().as_secs() < time {
-            yield_now().await;
-        }
-        Instant::now()
+        Self::after_millis(time * 1000).await
     }
 }

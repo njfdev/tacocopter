@@ -197,6 +197,29 @@ function MainInterface({ tcData }: { tcData: TCData }) {
     update_chart(tcData.imuSensors);
   }, [tcData.imuSensors]);
 
+  useEffect(() => {
+    if (
+      Math.abs(
+        1 - tcData.state.imu_process_rate / tcData.state.target_update_rate
+      ) > 0.05
+    ) {
+      console.warn(
+        `Logs indicate the IMU frequency (${tcData.state.imu_process_rate}) has deviated from the target frequency (${tcData.state.target_update_rate}) by over 5%.`
+      );
+    }
+    if (
+      Math.abs(
+        1 -
+          tcData.state.control_loop_update_rate /
+            tcData.state.target_update_rate
+      ) > 0.05
+    ) {
+      console.warn(
+        `Logs indicate the control loop frequency (${tcData.state.control_loop_update_rate}) has deviated from the target frequency (${tcData.state.target_update_rate}) by over 5%.`
+      );
+    }
+  }, [tcData.state]);
+
   return (
     <main className="flex flex-col h-screen">
       <div className="flex h-[30vh] w-[80vw]">
@@ -206,10 +229,34 @@ function MainInterface({ tcData }: { tcData: TCData }) {
             <br />
             Target Update Frequency: {tcData.state.target_update_rate} hz
             <br />
-            IMU Process Frequency: {tcData.state.imu_process_rate} hz
+            <span
+              className={`${
+                Math.abs(
+                  1 -
+                    tcData.state.imu_process_rate /
+                      tcData.state.target_update_rate
+                ) > 0.05
+                  ? "text-red-500"
+                  : "text-foreground"
+              }`}
+            >
+              IMU Process Frequency: {tcData.state.imu_process_rate} hz
+            </span>
             <br />
-            Control Loop Update Frequency:{" "}
-            {tcData.state.control_loop_update_rate} hz
+            <span
+              className={`${
+                Math.abs(
+                  1 -
+                    tcData.state.control_loop_update_rate /
+                      tcData.state.target_update_rate
+                ) > 0.05
+                  ? "text-red-500"
+                  : "text-foreground"
+              }`}
+            >
+              Control Loop Update Frequency:{" "}
+              {tcData.state.control_loop_update_rate} hz
+            </span>
             <br />
             Estimated Altitude: {tcData.sensors.estimated_altitude} m
             <br />
