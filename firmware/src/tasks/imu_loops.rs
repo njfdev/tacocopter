@@ -45,8 +45,14 @@ pub async fn mpu6050_processor_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>)
         let frequency = 1_000_000.0 / last_loop.elapsed().as_micros() as f32;
         last_loop = new_since_last;
 
-        let gyro_data: [f32; 3] = mpu.get_gyro().unwrap().as_slice().try_into().unwrap();
-        let accel_data: [f32; 3] = mpu.get_acc().unwrap().as_slice().try_into().unwrap();
+        let mut gyro_data: [f32; 3] = mpu.get_gyro().unwrap().as_slice().try_into().unwrap();
+        let mut accel_data: [f32; 3] = mpu.get_acc().unwrap().as_slice().try_into().unwrap();
+
+        // correct for sensor orientation
+        gyro_data[0] *= -1.0;
+        gyro_data[1] *= -1.0;
+        accel_data[0] *= -1.0;
+        accel_data[1] *= -1.0;
 
         // if calibration needs to occur, interrupt the loop early for calibration step
         if START_CALIBRATION_SIGNAL.signaled() {
