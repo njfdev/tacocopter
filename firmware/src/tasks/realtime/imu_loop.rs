@@ -1,9 +1,10 @@
 use embassy_futures::yield_now;
 use embassy_rp::{
-    i2c::{Async, I2c},
+    i2c::{Async, I2c, Instance},
     peripherals::I2C1,
 };
-use embassy_time::Instant;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_time::{Instant, Timer};
 use log::{info, warn};
 use micromath::F32Ext;
 use mpu6050::Mpu6050;
@@ -15,38 +16,45 @@ use crate::{
     drivers::tc_store::{types::SensorCalibrationData, TcStore},
     global::{
         CalibrationSensorType, CALIBRATION_FEEDBACK_SIGNAL, IMU_CALIB_SIGNAL,
-        IMU_PROCESSOR_FREQUENCY_WATCH, IMU_WATCH, START_CALIBRATION_SIGNAL,
+        START_CALIBRATION_SIGNAL,
     },
     tools::{
         calibrators::imu::GyroCalibrator, kalman::KalmanFilterQuat, yielding_timer::YieldingTimer,
     },
 };
 
-#[embassy_executor::task]
-pub async fn mpu6050_processor_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>) {
-    let mut last_loop = Instant::now();
-    let mut last_log = Instant::now();
-    let mut start = Instant::now();
+#[derive(Clone)]
+pub struct ImuData {
+    pub gyro_data: (f32, f32, f32),
+    pub accel_data: (f32, f32, f32),
+}
 
-    let mut calibration_type: Option<CalibrationSensorType> = None;
-    let mut gyro_calibrator = GyroCalibrator::new();
-    let mut sensor_calibration = tc_interface::SensorCalibrationData::default();
+pub struct ImuLoop<T: Instance + 'static> {
+    start: Instant,
 
-    let imu_watch_sender = IMU_WATCH.sender();
-    let imu_processor_freq_sender = IMU_PROCESSOR_FREQUENCY_WATCH.sender();
+    calibration_type: Option<CalibrationSensorType>,
+    gyro_calibrator: GyroCalibrator,
+    sensor_calibration: tc_interface::SensorCalibrationData,
 
-    loop {
-        let new_since_last = YieldingTimer::after_micros(
-            ((1_000_000.0 / UPDATE_LOOP_FREQUENCY) as u64)
-                .checked_sub(last_loop.elapsed().as_micros())
-                .unwrap_or_default(),
-        )
-        .await;
-        let frequency = 1_000_000.0 / last_loop.elapsed().as_micros() as f32;
-        last_loop = new_since_last;
+    mpu: Mpu6050<I2c<'static, T, Async>>,
+}
 
-        let mut gyro_data: [f32; 3] = mpu.get_gyro().unwrap().as_slice().try_into().unwrap();
-        let mut accel_data: [f32; 3] = mpu.get_acc().unwrap().as_slice().try_into().unwrap();
+impl<T: Instance + 'static> ImuLoop<T> {
+    pub fn new(mpu: Mpu6050<I2c<'static, T, Async>>) -> Self {
+        Self {
+            start: Instant::now(),
+
+            calibration_type: None,
+            gyro_calibrator: GyroCalibrator::new(),
+            sensor_calibration: tc_interface::SensorCalibrationData::default(),
+
+            mpu: mpu,
+        }
+    }
+
+    pub async fn process(&mut self) -> ImuData {
+        let mut gyro_data: [f32; 3] = self.mpu.get_gyro().unwrap().as_slice().try_into().unwrap();
+        let mut accel_data: [f32; 3] = self.mpu.get_acc().unwrap().as_slice().try_into().unwrap();
 
         // correct for sensor orientation
         gyro_data[0] *= -1.0;
@@ -56,37 +64,31 @@ pub async fn mpu6050_processor_loop(mut mpu: Mpu6050<I2c<'static, I2C1, Async>>)
 
         // if calibration needs to occur, interrupt the loop early for calibration step
         if START_CALIBRATION_SIGNAL.signaled() {
-            calibration_type = Some(START_CALIBRATION_SIGNAL.try_take().unwrap());
+            self.calibration_type = Some(START_CALIBRATION_SIGNAL.try_take().unwrap());
         }
         calibration_handler(
-            &mut calibration_type,
+            &mut self.calibration_type,
             gyro_data,
             accel_data,
-            &mut gyro_calibrator,
-            &mut start,
+            &mut self.gyro_calibrator,
+            &mut self.start,
         )
         .await;
 
         // correct biases
         let calib_res = IMU_CALIB_SIGNAL.try_take();
         if calib_res.is_some() {
-            sensor_calibration = calib_res.unwrap();
+            self.sensor_calibration = calib_res.unwrap();
         }
 
         let (gyro_data, accel_data) = (
-            correct_biases(&gyro_data, sensor_calibration.gyro_calibration),
-            correct_biases(&accel_data, sensor_calibration.accel_calibration),
+            correct_biases(&gyro_data, self.sensor_calibration.gyro_calibration),
+            correct_biases(&accel_data, self.sensor_calibration.accel_calibration),
         );
 
-        imu_watch_sender.send((
-            gyro_data.try_into().unwrap(),
-            Default::default(), //orientation_vector,
-            accel_data.try_into().unwrap(),
-        ));
-
-        if last_log.elapsed().as_millis() >= (1000.0 / USB_LOGGER_RATE) as u64 {
-            last_log = Instant::now();
-            imu_processor_freq_sender.send(frequency);
+        ImuData {
+            gyro_data: gyro_data.try_into().unwrap(),
+            accel_data: accel_data.try_into().unwrap(),
         }
     }
 }

@@ -9,6 +9,7 @@ pub mod setup;
 pub mod tasks;
 pub mod tools;
 
+use cortex_m::peripheral::DWT;
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
 use embassy_rp::block::ImageDef;
@@ -16,6 +17,7 @@ use embassy_rp::config::Config;
 use embassy_rp::gpio::Level;
 use embassy_rp::usb::{self, Driver};
 use embassy_sync::lazy_lock::LazyLock;
+use embassy_sync::mutex::Mutex;
 use embassy_time::Timer;
 use embassy_usb::class::cdc_acm::CdcAcmClass;
 use embassy_usb::driver::EndpointError;
@@ -23,7 +25,7 @@ use heapless::String;
 use log::{info, warn};
 
 use crate::drivers::tc_log::TcUsbLogger;
-use crate::global::{BOOT_TIME, CONTROL_LOOP_FREQUENCY_SIGNAL, USB_ENABLED};
+use crate::global::{BOOT_TIME, REALTIME_LOOP_FREQUENCY_SIGNAL, USB_ENABLED};
 use crate::setup::clock::setup_clocks;
 use crate::setup::flash::setup_flash_store;
 use crate::setup::peripherals::{setup_peripherals, SetupPeripherals};
@@ -121,7 +123,7 @@ async fn main(spawner: Spawner) {
             esc_pins: tc_devices.esc_pins,
             dshot: tc_devices.dshot,
             blheli_passthrough: tc_devices.blheli_passthrough,
-            serial_class,
+            serial_class: Mutex::new(serial_class),
             mpu: tc_devices.mpu,
             ultrasonic_trig: p.PIN_18,
             ultrasonic_echo: p.PIN_19,
@@ -130,8 +132,6 @@ async fn main(spawner: Spawner) {
             pm02d_interface: tc_devices.pm02d_interface,
         },
     );
-
-    let mut imu_process_freq = 1.0;
 
     unsafe {
         if PANIC_FLAG == 0xDEADBEEF {
@@ -146,6 +146,8 @@ async fn main(spawner: Spawner) {
         }
     }
 
+    let mut realtime_loop_freq = 1.0;
+
     loop {
         // handle serial stuff
         // serial_class.wait_connection().await;
@@ -154,17 +156,17 @@ async fn main(spawner: Spawner) {
         // blinking the onboard led can let us determine 2 pieces of important information without a debugger probe
         // 1. If the LED isn't blinking, the FC crashed
         // 2. If the LED blinking speed is inconsistent, the FC is overloaded
-        let new_imu_process_freq = CONTROL_LOOP_FREQUENCY_SIGNAL.try_take();
-        if new_imu_process_freq.is_some() {
-            // decrease the frequency by a factor of 50 to better see the result
-            imu_process_freq = new_imu_process_freq.unwrap() / 50.0;
+        let new_realtime_loop_freq = REALTIME_LOOP_FREQUENCY_SIGNAL.try_take();
+        if new_realtime_loop_freq.is_some() {
+            // decrease the frequency by a factor of 100 to better see the result
+            realtime_loop_freq = new_realtime_loop_freq.unwrap() / 100.0;
         }
 
         // if the frequency is too low, don't blink the LED (or it might take forever to blink if it was slow briefly)
-        if imu_process_freq < 1.0 {
+        if realtime_loop_freq < 1.0 {
             yield_now().await;
         } else {
-            blink_led(&mut tc_devices.status_led, imu_process_freq).await;
+            blink_led(&mut tc_devices.status_led, realtime_loop_freq).await;
         }
     }
 }

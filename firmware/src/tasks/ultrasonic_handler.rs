@@ -32,7 +32,7 @@ pub async fn calc_ultrasonic_height_agl(
 
         let imu_recv = imu_reciever.try_get();
         if imu_recv.is_some() {
-            imu_rotation = imu_recv.unwrap().1;
+            imu_rotation = imu_recv.unwrap().gyro_data;
         }
 
         let angle_to_down_cos = imu_rotation.0.cos() * imu_rotation.1.cos();

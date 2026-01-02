@@ -1,4 +1,5 @@
 use embassy_rp::uart::BufferedUartRx;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch::Sender};
 use embedded_io_async::Read;
 use log::{debug, error, trace, warn};
 
@@ -10,6 +11,7 @@ const BUF_LENGTH: usize = 1024;
 pub async fn elrs_receive_handler(mut rx: BufferedUartRx) {
     let mut current_packet: [u8; BUF_LENGTH] = [0; BUF_LENGTH];
     let mut current_len = 0;
+    let mut elrs_sender = ELRS_WATCH.sender();
     loop {
         let mut buf = [0; BUF_LENGTH];
         match rx.read(&mut buf).await {
@@ -61,7 +63,7 @@ pub async fn elrs_receive_handler(mut rx: BufferedUartRx) {
         // check if packet is complete
         let len = current_packet[1] as usize + 2;
         if current_len >= len {
-            handle_packet(&current_packet[..len], len).await;
+            handle_packet(&current_packet[..len], len, &mut elrs_sender).await;
 
             // now remove it
             current_packet.copy_within(len.., 0);
@@ -122,7 +124,11 @@ fn unpack_rc_bits(data: &[u8; 22]) -> [u16; 16] {
 // }
 
 // TODO: Verify with CRC
-async fn handle_packet(data: &[u8], len: usize) {
+async fn handle_packet<const N: usize>(
+    data: &[u8],
+    len: usize,
+    elrs_sender: &mut Sender<'static, CriticalSectionRawMutex, [u16; 16], N>,
+) {
     let frame_type = data[2];
 
     match frame_type {
@@ -141,7 +147,7 @@ async fn handle_packet(data: &[u8], len: usize) {
             } else {
                 let chnls = unpack_rc_bits(&data[3..25].try_into().unwrap());
 
-                ELRS_WATCH.sender().send(chnls);
+                elrs_sender.send(chnls);
             }
         }
         0x14 => {

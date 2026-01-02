@@ -79,9 +79,11 @@ pub async fn position_hold_loop() {
         if imu_recv.is_some() {
             let imu_data = imu_recv.unwrap();
 
-            let mut vertical_accel = ((-imu_data.1 .1.sin()) * imu_data.2 .0
-                + (imu_data.1 .1.cos() * imu_data.1 .0.sin()) * imu_data.2 .1
-                + (imu_data.1 .1.cos() * imu_data.1 .0.cos()) * imu_data.2 .2)
+            let mut vertical_accel = ((-imu_data.gyro_data.1.sin()) * imu_data.accel_data.0
+                + (imu_data.gyro_data.1.cos() * imu_data.gyro_data.0.sin())
+                    * imu_data.accel_data.1
+                + (imu_data.gyro_data.1.cos() * imu_data.gyro_data.0.cos())
+                    * imu_data.accel_data.2)
                 - 1.0;
             let dt = (last_imu.elapsed().as_micros() as f32) / 1_000_000.0;
             last_imu = Instant::now();

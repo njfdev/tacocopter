@@ -9,7 +9,10 @@ use embassy_rp::{
     usb::{Driver, Endpoint, In, Out},
     Peri,
 };
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::{
+    blocking_mutex::{raw::CriticalSectionRawMutex, CriticalSectionMutex},
+    mutex::Mutex,
+};
 use embassy_usb::{class::cdc_acm::CdcAcmClass, UsbDevice};
 use log::info;
 use mpu6050::Mpu6050;
@@ -22,12 +25,10 @@ use crate::{
         pm02d::PM02D,
     },
     tasks::{
+        blheli_handler::blheli_handler,
         bmp390_handler::bmp_loop,
-        control_loop::control_loop,
         elrs_transmitter::elrs_transmitter,
-        esc_handler::esc_handler,
-        imu_loops::mpu6050_processor_loop,
-        position_hold_loop::position_hold_loop,
+        realtime::{control_loop, realtime_loop},
         ultrasonic_handler::calc_ultrasonic_height_agl,
         usb_updater::{usb_task, usb_updater},
     },
@@ -46,7 +47,7 @@ pub struct TaskPeripherals {
     pub esc_pins: EscPins<'static, PIO0>,
     pub dshot: DshotPio<'static, 4, PIO0>,
     pub blheli_passthrough: BlHeliPassthrough<'static, PIO0>,
-    pub serial_class: CdcAcmClass<'static, Driver<'static, USB>>,
+    pub serial_class: Mutex<CriticalSectionRawMutex, CdcAcmClass<'static, Driver<'static, USB>>>,
     pub mpu: Mpu6050<i2c::I2c<'static, I2C1, i2c::Async>>,
     pub ultrasonic_trig: Peri<'static, PIN_18>,
     pub ultrasonic_echo: Peri<'static, PIN_19>,
@@ -67,18 +68,10 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
     // This task actually handles the USB traffic, and is I/O and timing heavy (runs on core 0)
     spawner.spawn(usb_task(p.usb)).unwrap();
 
-    spawner.spawn(mpu6050_processor_loop(p.mpu)).unwrap();
-
     spawner
         .spawn(elrs_transmitter(p.elrs, p.pm02d_interface))
         .unwrap();
 
-    let _ = spawner.spawn(esc_handler(
-        p.esc_pins,
-        p.dshot,
-        p.blheli_passthrough,
-        p.serial_class,
-    ));
     spawner.spawn(bmp_loop(p.bmp)).unwrap();
     spawner
         .spawn(calc_ultrasonic_height_agl(
@@ -87,18 +80,27 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
             p.pio,
         ))
         .unwrap();
+    spawner
+        .spawn(usb_updater(p.usb_bulk_in, p.usb_bulk_out))
+        .unwrap();
+    // TODO: get this working again
+    // spawner
+    //     .spawn(blheli_handler(
+    //         p.blheli_passthrough,
+    //         p.serial_class,
+    //         p.esc_pins,
+    //     ))
+    //     .unwrap();
 
-    // spawn stuff one core 1 before core 0 gets busy
+    // reserve core 1 only for time sensitive realtime loop
     spawn_core1(
         p.core1,
         unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
         move || {
             let executor = EXECUTOR1.init(Executor::new());
             executor.run(|spawner| {
-                let _ = spawner.spawn(control_loop());
-                // let _ = spawner.spawn(position_hold_loop());
                 spawner
-                    .spawn(usb_updater(p.usb_bulk_in, p.usb_bulk_out))
+                    .spawn(realtime_loop(p.mpu, p.esc_pins, p.dshot))
                     .unwrap();
             });
         },

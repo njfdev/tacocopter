@@ -15,6 +15,7 @@ use crate::{
         tc_store::types::{BlackboxSettings, PIDValues},
     },
     setup::flash::FlashType,
+    tasks::realtime::imu_loop::ImuData,
 };
 
 #[derive(Clone)]
@@ -29,14 +30,7 @@ pub static LOG_CHANNEL: Channel<CriticalSectionRawMutex, LogData, 128> = Channel
 
 pub static ELRS_WATCH: Watch<CriticalSectionRawMutex, [u16; 16], 2> = Watch::new();
 // The first 3 numbers are the IMU Rates in radians per second, the second 3 are for the estimated orientation, and the last three are the accel values
-pub static IMU_WATCH: Watch<
-    CriticalSectionRawMutex,
-    ((f32, f32, f32), (f32, f32, f32), (f32, f32, f32)),
-    4,
-> = Watch::new();
-// (armed, throttle_percent, motor_powers)
-pub static CONTROL_LOOP_VALUES: Signal<CriticalSectionRawMutex, (bool, f32, [f32; 4])> =
-    Signal::new();
+pub static IMU_WATCH: Watch<CriticalSectionRawMutex, ImuData, 4> = Watch::new();
 pub static GPS_SIGNAL: Watch<CriticalSectionRawMutex, GPSPayload, 2> = Watch::new();
 // measured height in m
 pub static ULTRASONIC_WATCH: Watch<CriticalSectionRawMutex, Option<f32>, 2> = Watch::new();
@@ -48,7 +42,6 @@ pub static BMP390_WATCH: Watch<CriticalSectionRawMutex, (f32, f32, f32), 1> = Wa
 // processed in position hold control loop, for use in the control loop under position hold mode (altitude, vertical velocity)
 pub static CURRENT_ALTITUDE: Watch<CriticalSectionRawMutex, (Option<f32>, Option<f32>), 3> =
     Watch::new();
-pub static ARMED_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
 // calibration updates
 pub static IMU_CALIB_SIGNAL: Signal<CriticalSectionRawMutex, SensorCalibrationData> = Signal::new();
 // In celsius
@@ -63,8 +56,7 @@ pub static CALIBRATION_FEEDBACK_SIGNAL: Signal<CriticalSectionRawMutex, SensorCa
     Signal::new();
 
 // frequency signals (for usb logging)
-pub static IMU_PROCESSOR_FREQUENCY_WATCH: Watch<CriticalSectionRawMutex, f32, 2> = Watch::new();
-pub static CONTROL_LOOP_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
+pub static REALTIME_LOOP_FREQUENCY_SIGNAL: Signal<CriticalSectionRawMutex, f32> = Signal::new();
 pub static IMU_PROCESSOR_SIGNAL: Signal<CriticalSectionRawMutex, (f32, ImuSensorData)> =
     Signal::new();
 

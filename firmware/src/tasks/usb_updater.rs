@@ -24,9 +24,9 @@ use crate::{
     },
     global::{
         CalibrationSensorType, BLACKBOX_SETTINGS_WATCH, BOOT_TIME, CALIBRATION_FEEDBACK_SIGNAL,
-        CONTROL_LOOP_FREQUENCY_SIGNAL, CURRENT_ALTITUDE, ELRS_WATCH, FC_PASSTHROUGH_SIGNAL,
-        IMU_CALIB_SIGNAL, IMU_PROCESSOR_FREQUENCY_WATCH, IMU_WATCH, LOG_CHANNEL, PID_WATCH,
-        START_CALIBRATION_SIGNAL, ULTRASONIC_WATCH, USB_ENABLED,
+        CURRENT_ALTITUDE, ELRS_WATCH, FC_PASSTHROUGH_SIGNAL, IMU_CALIB_SIGNAL, IMU_WATCH,
+        LOG_CHANNEL, PID_WATCH, REALTIME_LOOP_FREQUENCY_SIGNAL, START_CALIBRATION_SIGNAL,
+        ULTRASONIC_WATCH, USB_ENABLED,
     },
     tools::yielding_timer::YieldingTimer,
 };
@@ -56,13 +56,12 @@ pub async fn usb_updater(
     let mut imu_receiver = IMU_WATCH.receiver().unwrap();
     let mut blackbox_settings = TcStore::get::<BlackboxSettings>().await;
     let blackbox_settings_sender = BLACKBOX_SETTINGS_WATCH.sender();
-    let mut imu_processor_freq_receiver = IMU_PROCESSOR_FREQUENCY_WATCH.receiver().unwrap();
     let mut altitude_reciever = CURRENT_ALTITUDE.receiver().unwrap();
-    let mut elrs_reciever = ELRS_WATCH.receiver().unwrap();
+    let mut elrs_receiver = ELRS_WATCH.receiver().unwrap();
 
     let mut last_passthrough_enabled = false;
     let mut last_imu_process_rate = 0.0;
-    let mut last_control_loop_rate = 0.0;
+    let mut last_realtime_loop_rate = 0.0;
     let mut last_sensor_data = SensorData::default();
     let mut last_imu_sensor_data = ImuSensorData::default();
     let mut last_calibration_data = TcStore::get::<SensorCalibrationData>().await;
@@ -96,13 +95,9 @@ pub async fn usb_updater(
             last_passthrough_enabled = new_passthrough_setting.unwrap();
         }
 
-        let new_imu_process_freq = imu_processor_freq_receiver.try_changed();
-        if new_imu_process_freq.is_some() {
-            last_imu_process_rate = new_imu_process_freq.unwrap();
-        }
-        let new_control_loop_freq = CONTROL_LOOP_FREQUENCY_SIGNAL.try_take();
-        if new_control_loop_freq.is_some() {
-            last_control_loop_rate = new_control_loop_freq.unwrap();
+        let new_realtime_loop_freq = REALTIME_LOOP_FREQUENCY_SIGNAL.try_take();
+        if new_realtime_loop_freq.is_some() {
+            last_realtime_loop_rate = new_realtime_loop_freq.unwrap();
         }
 
         let new_calibration_data = IMU_CALIB_SIGNAL.try_take();
@@ -114,7 +109,7 @@ pub async fn usb_updater(
             };
         }
 
-        let elrs_recv = elrs_reciever.try_changed();
+        let elrs_recv = elrs_receiver.try_changed();
         if elrs_recv.is_some() {
             last_elrs_data = elrs_recv.unwrap();
         }
@@ -135,8 +130,8 @@ pub async fn usb_updater(
         if imu_res.is_some() {
             let imu_data = imu_res.unwrap();
             last_imu_sensor_data = ImuSensorData {
-                gyroscope: imu_data.0.into(),
-                accelerometer: imu_data.2.into(),
+                gyroscope: imu_data.gyro_data.into(),
+                accelerometer: imu_data.accel_data.into(),
             };
         }
 
@@ -148,8 +143,7 @@ pub async fn usb_updater(
         postcard::to_slice(
             &TCMessage::State(StateData {
                 target_update_rate: UPDATE_LOOP_FREQUENCY as f32,
-                imu_process_rate: last_imu_process_rate,
-                control_loop_update_rate: last_control_loop_rate,
+                realtime_loop_update_rate: last_realtime_loop_rate,
                 blheli_passthrough: last_passthrough_enabled,
                 uptime: BOOT_TIME.get().elapsed().as_secs() as u32,
             }),

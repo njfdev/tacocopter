@@ -200,22 +200,13 @@ function MainInterface({ tcData }: { tcData: TCData }) {
   useEffect(() => {
     if (
       Math.abs(
-        1 - tcData.state.imu_process_rate / tcData.state.target_update_rate
-      ) > 0.05
-    ) {
-      console.warn(
-        `Logs indicate the IMU frequency (${tcData.state.imu_process_rate}) has deviated from the target frequency (${tcData.state.target_update_rate}) by over 5%.`
-      );
-    }
-    if (
-      Math.abs(
         1 -
-          tcData.state.control_loop_update_rate /
+          tcData.state.realtime_loop_update_rate /
             tcData.state.target_update_rate
       ) > 0.05
     ) {
       console.warn(
-        `Logs indicate the control loop frequency (${tcData.state.control_loop_update_rate}) has deviated from the target frequency (${tcData.state.target_update_rate}) by over 5%.`
+        `Logs indicate the realtime loop frequency (${tcData.state.realtime_loop_update_rate}) has deviated from the target frequency (${tcData.state.target_update_rate}) by over 5%.`
       );
     }
   }, [tcData.state]);
@@ -233,29 +224,15 @@ function MainInterface({ tcData }: { tcData: TCData }) {
               className={`${
                 Math.abs(
                   1 -
-                    tcData.state.imu_process_rate /
+                    tcData.state.realtime_loop_update_rate /
                       tcData.state.target_update_rate
                 ) > 0.05
                   ? "text-red-500"
                   : "text-foreground"
               }`}
             >
-              IMU Process Frequency: {tcData.state.imu_process_rate} hz
-            </span>
-            <br />
-            <span
-              className={`${
-                Math.abs(
-                  1 -
-                    tcData.state.control_loop_update_rate /
-                      tcData.state.target_update_rate
-                ) > 0.05
-                  ? "text-red-500"
-                  : "text-foreground"
-              }`}
-            >
-              Control Loop Update Frequency:{" "}
-              {tcData.state.control_loop_update_rate} hz
+              Realtime Loop Update Frequency:{" "}
+              {tcData.state.realtime_loop_update_rate} hz
             </span>
             <br />
             Estimated Altitude: {tcData.sensors.estimated_altitude} m
