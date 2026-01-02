@@ -7,7 +7,7 @@ export default function CalibrationInterface({ tcData }: { tcData: TCData }) {
   const [gyroCalibrating, setGyroCalibrating] = useState(false);
   const [gyroCalibProgress, setGyroCalibProgress] = useState({
     samples: 0,
-    seconds_remaining: 10,
+    seconds_remaining: 3,
   });
   const [calibrationData, setCalibrationData] = useState(
     tcData.sensorCalibration.Data || {
@@ -54,9 +54,9 @@ export default function CalibrationInterface({ tcData }: { tcData: TCData }) {
             <Slider
               label={`
               Samples: ${gyroCalibProgress.samples}`}
-              value={10 - gyroCalibProgress.seconds_remaining}
+              value={3 - gyroCalibProgress.seconds_remaining}
               minValue={0}
-              maxValue={10}
+              maxValue={3}
               step={0.01}
               hideValue={true}
               hideThumb={true}

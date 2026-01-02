@@ -3,7 +3,10 @@ use embassy_rp::{
     i2c::{Async, I2c, Instance},
     peripherals::I2C1,
 };
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::{
+    blocking_mutex::raw::CriticalSectionRawMutex,
+    watch::{Sender, Watch},
+};
 use embassy_time::{Instant, Timer};
 use log::{info, warn};
 use micromath::F32Ext;
@@ -15,7 +18,7 @@ use crate::{
     consts::{UPDATE_LOOP_FREQUENCY, USB_LOGGER_RATE},
     drivers::tc_store::{types::SensorCalibrationData, TcStore},
     global::{
-        CalibrationSensorType, CALIBRATION_FEEDBACK_SIGNAL, IMU_CALIB_SIGNAL,
+        CalibrationSensorType, CALIBRATION_FEEDBACK_SIGNAL, IMU_CALIB_SIGNAL, IMU_WATCH,
         START_CALIBRATION_SIGNAL,
     },
     tools::{
@@ -36,6 +39,8 @@ pub struct ImuLoop<T: Instance + 'static> {
     gyro_calibrator: GyroCalibrator,
     sensor_calibration: tc_interface::SensorCalibrationData,
 
+    imu_sender: Sender<'static, CriticalSectionRawMutex, ImuData, 4>,
+
     mpu: Mpu6050<I2c<'static, T, Async>>,
 }
 
@@ -47,6 +52,8 @@ impl<T: Instance + 'static> ImuLoop<T> {
             calibration_type: None,
             gyro_calibrator: GyroCalibrator::new(),
             sensor_calibration: tc_interface::SensorCalibrationData::default(),
+
+            imu_sender: IMU_WATCH.sender(),
 
             mpu: mpu,
         }
@@ -86,10 +93,14 @@ impl<T: Instance + 'static> ImuLoop<T> {
             correct_biases(&accel_data, self.sensor_calibration.accel_calibration),
         );
 
-        ImuData {
+        let imu_data = ImuData {
             gyro_data: gyro_data.try_into().unwrap(),
             accel_data: accel_data.try_into().unwrap(),
-        }
+        };
+
+        self.imu_sender.send(imu_data.clone());
+
+        imu_data
     }
 }
 
