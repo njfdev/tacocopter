@@ -277,7 +277,7 @@ impl ControlLoop {
 
     pub async fn process(&mut self, imu_data: ImuData) -> ControlData {
         self.process_imu(imu_data);
-        self.process_elrs();
+        self.process_elrs().await;
         let (pid_pitch_output, pid_roll_output, pid_yaw_output) = self.process_pid();
 
         self.process_blackbox();
