@@ -130,6 +130,7 @@ async fn main(spawner: Spawner) {
             pio: p.PIO1,
             elrs: tc_devices.elrs,
             pm02d_interface: tc_devices.pm02d_interface,
+            gps: tc_devices.gps,
         },
     );
 

@@ -723,6 +723,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "embers"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e5ac51b3b9d80df4e59198768b68a9fdf8fccd2dda3c9a5a6c5b7b72cf860b1"
+dependencies = [
+ "embedded-io-async",
+ "num-derive",
+ "num-traits",
+]
+
+[[package]]
 name = "ena"
 version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -774,6 +785,7 @@ dependencies = [
  "embedded-io-async",
  "embedded-storage",
  "embedded-storage-async",
+ "embers",
  "fixed",
  "format_no_std",
  "heapless 0.7.17",
@@ -1178,6 +1190,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "num-derive"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed3955f1a9c7c0c15e092f9c887db08b1fc683305fdf6eb6684f22555355e202"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
 ]
 
 [[package]]

@@ -6,6 +6,7 @@ use embassy_rp::{
     i2c::{self, Async, I2c},
     multicore::{spawn_core1, Stack},
     peripherals::{CORE1, I2C0, I2C1, PIN_16, PIN_17, PIN_18, PIN_19, PIO0, PIO1, USB},
+    uart::{BufferedUartRx, BufferedUartTx},
     usb::{Driver, Endpoint, In, Out},
     Peri,
 };
@@ -14,6 +15,7 @@ use embassy_sync::{
     mutex::Mutex,
 };
 use embassy_usb::{class::cdc_acm::CdcAcmClass, UsbDevice};
+use embers::gps::ublox::{UBlox, SUGGESTED_UBLOX_BUFFER_SIZE};
 use log::info;
 use mpu6050::Mpu6050;
 use static_cell::StaticCell;
@@ -28,6 +30,7 @@ use crate::{
         blheli_handler::blheli_handler,
         bmp390_handler::bmp_loop,
         elrs_transmitter::elrs_transmitter,
+        gps_handler::gps_handler,
         realtime::{control_loop, realtime_loop},
         ultrasonic_handler::calc_ultrasonic_height_agl,
         usb_updater::{usb_task, usb_updater},
@@ -54,6 +57,7 @@ pub struct TaskPeripherals {
     pub pio: Peri<'static, PIO1>,
     pub elrs: Elrs,
     pub pm02d_interface: Option<PM02D>,
+    pub gps: UBlox<BufferedUartRx, BufferedUartTx, SUGGESTED_UBLOX_BUFFER_SIZE>,
 }
 
 pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
@@ -67,6 +71,8 @@ pub fn spawn_tasks(spawner: Spawner, p: TaskPeripherals) {
 
     // This task actually handles the USB traffic, and is I/O and timing heavy (runs on core 0)
     spawner.spawn(usb_task(p.usb)).unwrap();
+
+    spawner.spawn(gps_handler(p.gps)).unwrap();
 
     spawner
         .spawn(elrs_transmitter(p.elrs, p.pm02d_interface))

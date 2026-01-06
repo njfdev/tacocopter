@@ -3,6 +3,7 @@ use embassy_sync::{
     mutex::Mutex, once_lock::OnceLock, signal::Signal, watch::Watch,
 };
 use embassy_time::Instant;
+use embers::gps::GPSPayload;
 use tc_interface::{
     ImuSensorData, LogData, SensorCalibrationData, SensorCalibrationType, SensorData,
     StartGyroCalibrationData, StateData,
@@ -10,10 +11,7 @@ use tc_interface::{
 
 use crate::{
     consts::UPDATE_LOOP_FREQUENCY,
-    drivers::{
-        m100_gps::GPSPayload,
-        tc_store::types::{BlackboxSettings, PIDValues},
-    },
+    drivers::tc_store::types::{BlackboxSettings, PIDValues},
     setup::flash::FlashType,
     tasks::realtime::imu_loop::ImuData,
 };

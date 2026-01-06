@@ -2,7 +2,6 @@ use crate::{
     drivers::{
         elrs::Elrs,
         esc::{blheli_passthrough::BlHeliPassthrough, dshot_pio::DshotPio, EscPins},
-        m100_gps::init_gps,
         pm02d::PM02D,
     },
     setup::{barometer::setup_barometer, i2c::setup_i2c_bus, imu::setup_imu},
@@ -20,15 +19,21 @@ use embassy_rp::{
         PIN_4, PIN_5, PIN_6, PIN_7, PIN_8, PIN_9, PIO0, UART0, UART1,
     },
     pio::{Instance, Pio},
-    uart::BufferedUartTx,
+    uart::{self, BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx},
     Peri,
 };
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embers::gps::ublox::{UBlox, SUGGESTED_UBLOX_BUFFER_SIZE};
 use micromath::F32Ext;
 use mpu6050::Mpu6050;
+use static_cell::StaticCell;
 
 bind_interrupts!(struct Pio0Irqs {
   PIO0_IRQ_0 => embassy_rp::pio::InterruptHandler<embassy_rp::peripherals::PIO0>;
+});
+
+bind_interrupts!(struct UartIrq {
+  UART1_IRQ => BufferedInterruptHandler<UART1>;
 });
 
 pub struct SetupPeripherals {
@@ -55,7 +60,7 @@ pub struct SetupPeripherals {
 pub struct TcDevices {
     pub mpu: Mpu6050<I2c<'static, I2C1, Async>>,
     pub bmp: Bmp390<I2cDevice<'static, CriticalSectionRawMutex, I2c<'static, I2C0, Async>>>,
-    pub gps: BufferedUartTx,
+    pub gps: UBlox<BufferedUartRx, BufferedUartTx, SUGGESTED_UBLOX_BUFFER_SIZE>,
     pub elrs: Elrs,
     pub esc_pins: EscPins<'static, PIO0>,
     pub dshot: DshotPio<'static, 4, PIO0>,
@@ -71,7 +76,7 @@ pub async fn setup_peripherals(spawner: Spawner, p: SetupPeripherals) -> TcDevic
 
     let elrs_handle = Elrs::new(p.elrs_tx, p.elrs_rx, p.elrs_uart, spawner.clone());
 
-    let gps = init_gps(p.gps_tx, p.gps_rx, p.gps_uart, spawner.clone()).await;
+    let gps = setup_gps(p.gps_tx, p.gps_rx, p.gps_uart);
 
     let i2c0_bus = setup_i2c_bus(p.i2c0_interface, p.i2c0_scl, p.i2c0_sda);
 
@@ -103,4 +108,23 @@ pub async fn setup_peripherals(spawner: Spawner, p: SetupPeripherals) -> TcDevic
         pm02d_interface,
         status_led: led,
     }
+}
+
+pub fn setup_gps(
+    tx_pin: Peri<'static, PIN_8>,
+    rx_pin: Peri<'static, PIN_9>,
+    uart: Peri<'static, UART1>,
+) -> UBlox<BufferedUartRx, BufferedUartTx, SUGGESTED_UBLOX_BUFFER_SIZE> {
+    // initialize UART connection
+    static TX_BUF: StaticCell<[u8; SUGGESTED_UBLOX_BUFFER_SIZE]> = StaticCell::new();
+    let tx_buf = &mut TX_BUF.init([0; SUGGESTED_UBLOX_BUFFER_SIZE])[..];
+    static RX_BUF: StaticCell<[u8; SUGGESTED_UBLOX_BUFFER_SIZE]> = StaticCell::new();
+    let rx_buf = &mut RX_BUF.init([0; SUGGESTED_UBLOX_BUFFER_SIZE])[..];
+
+    let mut uart_config = uart::Config::default();
+    uart_config.baudrate = 115200;
+    let uart = BufferedUart::new(uart, tx_pin, rx_pin, UartIrq, tx_buf, rx_buf, uart_config);
+    let (tx, rx) = uart.split();
+
+    return UBlox::new(rx, tx);
 }
